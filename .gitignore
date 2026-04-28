@@ -163,5 +163,4 @@ cython_debug/
 #.idea/
 
 # Custom additions
-test_results
 test_log.txt

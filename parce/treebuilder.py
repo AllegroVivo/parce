@@ -41,22 +41,33 @@ background thread, and even interrupt tokenizing when changes are to be applied
 while processing previous changes.
 
 """
+from __future__ import annotations
 
-import threading
+from typing import TYPE_CHECKING, Tuple, Optional, List, Union, Literal, Sequence, Iterable
+
+from threading import Lock
 
 from parce import util
 from parce.lexer import Lexer
-from parce.target import TargetFactory
-from parce.tree import Context, make_tokens
+from parce.tree import Context
 from parce.treebuilderutil import (
     BuildResult, ReplaceResult, Changes, ancestors_with_index,
-    get_prepared_lexer, new_tree)
+    get_prepared_lexer, new_tree
+)
 
+if TYPE_CHECKING:
+    from .lexicon import Lexicon
+    from .tree import IndexTrail, TokenOrContext
 
-def build_tree(root_lexicon, text, pos=0):
+OptionalLexiconOrFalse = Optional[Union["Lexicon", Literal[False]]]
+
+# TODO - Minor missing attribute squiggles below. Tried to fix and broke everything. - SP
+# noinspection PyUnresolvedReferences
+def build_tree(root_lexicon: Lexicon, text: str, pos: int = 0) -> Context:
     """Build and return a tree in one go."""
-    from parce.tree import Context, make_tokens # local is faster
-    root = context = Context(root_lexicon, None)
+    from parce.tree import Context, make_tokens  # local is faster
+    root = Context(root_lexicon, None)
+    context = root
     if root_lexicon:
         lexer = Lexer([root_lexicon])
         for target, lexemes in lexer.events(text, pos):
@@ -85,7 +96,7 @@ class TreeBuilder(util.Observable):
     builds a (replacement) tree without making any changes yet to the current
     tree.
 
-    The result of :meth:`build_new_tree` is a tuple of arguments that is used
+    The result of :meth:`build_new_tree` is a tuple of arguments that is
     used when calling :meth:`replace_tree`, which integrates the updated
     subtree in the main tree structure. This method sets three instance
     attributes:
@@ -152,25 +163,32 @@ class TreeBuilder(util.Observable):
         >>>
 
     """
-    start = 0
-    end = 0
-    lexicons = ()
+    start: int = 0
+    end: int = 0
+    lexicons: Tuple[Lexicon] = ()
 
-    peek_threshold = 0  #: set to a value > 0 to get :meth:`peek` called during building
+    peek_threshold: int = 0  #: set to a value > 0 to get :meth:`peek` called during building
 
-    def __init__(self, root_lexicon=None):
+    def __init__(self, root_lexicon: Optional[Lexicon] = None):
         super().__init__()
-        self._lock = threading.Lock()
-        self.root = Context(root_lexicon, None)
-        self.busy = False
-        self.changes = []
+        self._lock: Lock = Lock()
+        self.root: Context = Context(root_lexicon, None)
+        self.busy: bool = False
+        self.changes: List = []  # TODO - more specific type
 
-    def tree(self, text):
+    def tree(self, text: str) -> Context:
         """Convenience method to build a tree and return the root node."""
         self.rebuild(text)
         return self.root
 
-    def rebuild(self, text, root_lexicon=False, start=0, removed=0, added=None):
+    def rebuild(
+        self,
+        text: str,
+        root_lexicon: OptionalLexiconOrFalse = False,
+        start: int = 0,
+        removed: int = 0,
+        added: Optional[int] = None
+    ) -> None:
         """Tokenize the modified part of the text again and update the tree.
 
         The arguments:
@@ -204,7 +222,14 @@ class TreeBuilder(util.Observable):
             self.busy = True
             self.start_processing()
 
-    def add_changes(self, text, root_lexicon, start, removed, added):
+    def add_changes(
+        self,
+        text: str,
+        root_lexicon: OptionalLexiconOrFalse,
+        start: int,
+        removed: int,
+        added: Optional[int]
+    ) -> None:
         """Add the changes to our changes list, but do not rebuild immediately.
 
         The arguments are the same as for :meth:`rebuild`.
@@ -215,7 +240,14 @@ class TreeBuilder(util.Observable):
         with self._lock:
             self.changes.append((text, root_lexicon, start, removed, added))
 
-    def build_new_tree(self, text, root_lexicon, start, removed, added):
+    def build_new_tree(
+        self,
+        text: str,
+        root_lexicon: OptionalLexiconOrFalse,
+        start: int,
+        removed: int,
+        added: Optional[int]
+    ) -> BuildResult:
         """Build a new tree without yet modifying the current tree.
 
         This method is called by :meth:`process`. Returns a ``BuildResult``
@@ -240,12 +272,15 @@ class TreeBuilder(util.Observable):
         gives the position change for the tokens that are reused.
 
         """
-        from parce.tree import Context, make_tokens # local is faster
+        from parce.tree import Context, make_tokens  # local is faster
 
         if root_lexicon is not False:
             start, removed, added = 0, 0, len(text)
         else:
             root_lexicon = self.root.lexicon
+
+        assert not isinstance(root_lexicon, bool)
+        assert added is not None
 
         # manage end, and record if there is text after the modified part (tail)
         end = start + removed
@@ -259,18 +294,28 @@ class TreeBuilder(util.Observable):
         # If there remains text after the modified part,
         # we try to reuse the old tokens
         tail = False
+        tail_token = None
+        tail_gen = []
+        tail_pos = None
         if start + added < len(text):
             # find the first token after the modified part
             tail_token = self.root.find_token_after(end)
             if tail_token:
-                tail_gen = ((t, t.pos) for t in tail_token.forward_including()
-                        if not t.group and not (t.is_first() and t.parent.lexicon.consume))
+                tail_gen = (
+                    (t, t.pos)
+                    for t in tail_token.forward_including()
+                    if not t.group and not (t.is_first() and t.parent.lexicon.consume)  # type: ignore - t is a token here
+                )
                 for tail_token, tail_pos in tail_gen:
                     tail = True
                     break
 
         lowest_start = start
+        lexer = None
         changes = self.changes
+        events = []
+        peek = 0
+        context = None
         tree = None
         while True:
             # when restarting, see if we can reuse (part of) the new tree
@@ -296,12 +341,14 @@ class TreeBuilder(util.Observable):
                     start = tokens[-1].end
                     lowest_start = min(lowest_start, start)
                 else:
+                    assert not isinstance(root_lexicon, bool)
                     tree = context = Context(root_lexicon, None)
                     lexer = Lexer([root_lexicon])
                     events = lexer.events(text)
                     lowest_start = 0
                 peek = self.peek_threshold + lowest_start if self.peek_threshold else 0
             # start parsing
+            assert context is not None
             for target, lexemes in events:
                 if target:
                     for _ in range(target.pop, 0):
@@ -313,16 +360,21 @@ class TreeBuilder(util.Observable):
                 if tail:
                     # handle tail
                     pos = tokens[0].pos - offset
+                    assert tail_pos
                     if pos > tail_pos:
                         for tail_token, tail_pos in tail_gen:
                             if tail_pos >= pos:
                                 break
                         else:
                             tail = False
-                    if pos == tail_pos and tokens[0].equals(tail_token) and \
-                            (context or not context.lexicon.consume) :
+                    assert tail_token is not None
+                    if (
+                        pos == tail_pos and tokens[0].equals(tail_token)
+                        and (context or not context.lexicon.consume)  # type: ignore
+                    ):
                         # we can reuse the tail from tail_pos
                         return BuildResult(tree, lowest_start, tail_pos, offset, None)
+                assert context is not None
                 context.extend(tokens)
                 if changes:
                     # handle changes
@@ -331,9 +383,10 @@ class TreeBuilder(util.Observable):
                         # break out and adjust the current tokenizing process
                         text = c.text
                         start = c.start
-                        if c.root_lexicon != False:
+                        if c.root_lexicon is not False:
                             root_lexicon = c.root_lexicon
                             if not root_lexicon:
+                                assert not isinstance(root_lexicon, bool)
                                 return BuildResult(Context(root_lexicon, None), 0, len(text), 0, [])
                             start = 0
                             tail = False
@@ -353,25 +406,27 @@ class TreeBuilder(util.Observable):
                                             break
                                     else:
                                         tail = False
-                        break # break the for loop to restart at new start pos
+                        break  # break the for loop to restart at new start pos
                 if peek and tokens[-1].pos > peek:
                     # call peek with a copy of the current tree.
                     copied_tree = tree.copy()
                     # remove the first empty context
                     t = copied_tree[0]
-                    while t and t.is_context:
+                    while t and isinstance(t, Context):
                         t = t[0]
-                    while t.is_context and not t:
+                    while isinstance(t, Context) and not t:
                         t = t.parent
+                        assert t is not None
                         del t[0]
                     self.peek(lowest_start, copied_tree)
                     peek = 0
             else:
                 # we ran till the end, also return the open lexicons
+                assert lexer is not None
                 return BuildResult(tree, lowest_start, len(text), 0, lexer.lexicons[1:])
         raise RuntimeError("shouldn't come here")
 
-    def replace_tree(self, result):
+    def replace_tree(self, result: BuildResult) -> ReplaceResult:
         """Modify the tree using the result from :meth:`build_new_tree`.
 
         In most types of GUI applications, this method should be called in the
@@ -399,8 +454,8 @@ class TreeBuilder(util.Observable):
         else:
 
             context = self.root
-            start_trail = self.root.find_token_left_with_trail(start)[1] if start else []
-            end_trail = self.root.find_token_with_trail(end)[1] if lexicons is None else []
+            start_trail: IndexTrail = self.root.find_token_left_with_trail(start)[1] if start else []  # type: ignore - if start is valid, there will be indices
+            end_trail: IndexTrail = self.root.find_token_with_trail(end)[1] if lexicons is None else []  # type: ignore - if lexicons is valid, there will be indices
 
             # find the context that really changes, adjust trails
             i = 0
@@ -426,6 +481,7 @@ class TreeBuilder(util.Observable):
                     if slice_end is None:
                         slice_end = i + 1
                     else:
+                        assert isinstance(c, Context)
                         s = c[i+1:]
                         t.extend(s)
                         for n in s:
@@ -435,19 +491,20 @@ class TreeBuilder(util.Observable):
                                 n.pos += offset
                     if t:
                         t = t[l]    # t can be empty if len(end_trail) == 1, is last iteration anyway
+                    assert isinstance(c, Context)
                     c = c[i]
 
-            if offset:
+            replace_pos_index = 0
+            if offset and slice_end is not None:
                 # if there remain nodes in the current context after tree
                 # insertion, store the index now, later we'll adjust the pos
-                if slice_end is not None:
-                    replace_pos_index = slice_end - len(context)
-                else:
-                    replace_pos_index = 0
+                replace_pos_index = slice_end - len(context)
 
+            assert isinstance(context, Context)
             if start_trail:
                 # replace stuff after start_trail with tree
                 c = context
+                assert isinstance(c, Context)
                 t = tree
                 for i in start_trail[:-1]:
                     for n in t[1:]:
@@ -473,7 +530,8 @@ class TreeBuilder(util.Observable):
 
         return ReplaceResult(start, end + offset, lexicons)
 
-    def replace_nodes(self, context, slice_, nodes):
+    # noinspection PyMethodMayBeStatic
+    def replace_nodes(self, context: Context, slice_: slice, nodes: Sequence[TokenOrContext]) -> None:
         """Replace the context's slice with new nodes.
 
         This method is called by :meth:`replace_tree`.
@@ -482,7 +540,7 @@ class TreeBuilder(util.Observable):
         """
         context[slice_] = nodes
 
-    def replace_root_lexicon(self, lexicon):
+    def replace_root_lexicon(self, lexicon: Lexicon) -> None:
         """Set the root lexicon.
 
         This method is called by :meth:`replace_tree`.
@@ -491,7 +549,8 @@ class TreeBuilder(util.Observable):
         """
         self.root.lexicon = lexicon
 
-    def replace_pos(self, context, index, offset):
+    # noinspection PyMethodMayBeStatic
+    def replace_pos(self, context: Context, index: int, offset: int) -> None:
         """Adjust the pos attribute of all tokens in ``context[index:]``.
 
         This method is called by :meth:`replace_tree`.
@@ -501,8 +560,8 @@ class TreeBuilder(util.Observable):
         for t in util.tokens(context[index:]):
             t.pos += offset
 
-    def invalidate_context(self, context):
-        """Called with the younghest Context that had children are removed or
+    def invalidate_context(self, context: Context) -> None:
+        """Called with the youngest Context that had children are removed or
         added.
 
         This means that the meaning of this context probably has changed, for
@@ -515,7 +574,7 @@ class TreeBuilder(util.Observable):
         """
         self.emit("invalidate", context)
 
-    def get_changes(self):
+    def get_changes(self) -> Changes:
         """Get and combine the stored change requests in a Changes object.
 
         This may only be called from the same thread that also performs the
@@ -527,7 +586,7 @@ class TreeBuilder(util.Observable):
             c.add(*self.changes.pop(0))
         return c
 
-    def start_processing(self):
+    def start_processing(self) -> None:
         """Called when there are recorded changes to process.
 
         The default implementation read all build stages from the
@@ -535,10 +594,10 @@ class TreeBuilder(util.Observable):
         method to call it e.g. in a background thread.
 
         """
-        for stage in self.process():
+        for _ in self.process():
             pass
 
-    def process(self):
+    def process(self) -> Iterable[str]:
         """Process all changes and update the tree.
 
         This method behaves as a generator coroutine, instead of simply calling
@@ -564,11 +623,11 @@ class TreeBuilder(util.Observable):
         while c and c.has_changes():
             self._lock.release()
             yield "build"
-            result = self.build_new_tree(c.text, c.root_lexicon, c.start, c.removed, c.added)
+            result = self.build_new_tree(c.text, c.root_lexicon, c.start, c.removed, c.added)  # type: ignore - root_lexicon is fine here
             yield "replace"
             self.emit("replace")
             r = self.replace_tree(result)
-            start = r.start if start == -1 else min (start, r.start)
+            start = r.start if start == -1 else min(start, r.start)
             end = r.end if end == -1 else max(c.new_position(end), r.end)
             if r.lexicons is not None:
                 lexicons = r.lexicons
@@ -577,15 +636,16 @@ class TreeBuilder(util.Observable):
         if start != -1:
             self.start = start
         if end != -1:
+            assert isinstance(end, int)
             self.end = end
         if lexicons is not False:
-            self.lexicons = lexicons
+            self.lexicons = lexicons  # type: ignore - lexicons is, by definition, not False here
         self.busy = False
         self._lock.release()
         yield "done"
         self.process_finished()
 
-    def peek(self, start, tree):
+    def peek(self, start: int, tree: Context) -> None:
         """This is called from :meth:`build_new_tree` with a sneak preview tree.
 
         This can be used to get a small tree before the new tree is built
@@ -613,7 +673,7 @@ class TreeBuilder(util.Observable):
         """
         self.emit("peek", start, tree)
 
-    def process_started(self):
+    def process_started(self) -> None:
         """Called at the start ot the tree building process.
 
         The default implementation of this method emits the ``started`` event,
@@ -622,7 +682,7 @@ class TreeBuilder(util.Observable):
         """
         self.emit("started")
 
-    def process_finished(self):
+    def process_finished(self) -> None:
         """Called when tree building is done.
 
         The default implementation of this method emits the ``updated(start,
@@ -632,5 +692,3 @@ class TreeBuilder(util.Observable):
         """
         self.emit("updated", self.start, self.end)
         self.emit("finished")
-
-

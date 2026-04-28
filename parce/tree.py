@@ -705,9 +705,9 @@ class Context(list[TokenOrContext], Node):
     def __new__(cls, lexicon, parent):
         return list.__new__(cls)  # type: ignore - this is fine, we inherit from list - SP
 
-    def __init__(self, lexicon: Lexicon, parent: Optional[Context]):
+    def __init__(self, lexicon: Optional[Lexicon], parent: Optional[Context]):
         super().__init__()
-        self.lexicon: Lexicon = lexicon  #: The lexicon this context was instantiated with.
+        self.lexicon: Optional[Lexicon] = lexicon  #: The lexicon this context was instantiated with.
         self.parent: Optional[Context] = parent
 
     def __repr__(self) -> str:
@@ -1207,7 +1207,8 @@ class Range:
 
         Returns None if the tree is empty.
 
-        TODO: There are several typing issues here that I haven't been able to resolve, should address them at some point. - SP
+        TODO: There are several typing issues here that I haven't been able to resolve cleanly,
+              should address them at some point. - SP
         """
         if not tree:
             return  # empty
