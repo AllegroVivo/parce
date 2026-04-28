@@ -31,12 +31,12 @@ import itertools
 
 from . import util
 from .lexer import Event, Lexer
-from .tree import Context, Range
+from .tree import Context, Range, Token
 from .target import TargetFactory
 
 if TYPE_CHECKING:
     from .treebuilder import OptionalLexiconOrFalse, IndexTrail
-    from .tree import Token, TokenOrContext
+    from .tree import TokenOrContext
 
 #: encapsulates the return values of :meth:`TreeBuilder.build_new_tree`
 BuildResult = collections.namedtuple("BuildResult", "tree start end offset lexicons")
