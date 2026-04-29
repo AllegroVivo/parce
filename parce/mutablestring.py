@@ -32,16 +32,17 @@ applied when the context exits for the last time.
 from __future__ import annotations
 
 from types import TracebackType
-from typing import TYPE_CHECKING, Tuple, Dict, List, Self, Optional, Type, Union, Iterable, Sequence
+from typing import (
+    TYPE_CHECKING, Tuple, Dict, List, Self, Optional, Type, Iterable, Sequence
+)
 
 import collections
 import reprlib
 
 if TYPE_CHECKING:
-    pass
+    from .document import LookupKey
 
 Change = Tuple[int, int, str]
-IntOrSlice = Union[int, slice]
 
 class AbstractMutableString:
     """Abstract base class of a MutableString.
@@ -130,7 +131,7 @@ class AbstractMutableString:
         """Implement the + operator. Returns a new, plain str instance."""
         return text + self.text()
 
-    def __setitem__(self, key: IntOrSlice, text: str) -> None:
+    def __setitem__(self, key: LookupKey, text: str) -> None:
         """Replace the position or slice with text."""
         start, end = self._parse_key(key)
         if (
@@ -141,11 +142,11 @@ class AbstractMutableString:
             if not self._edit_context:
                 self._apply_changes()
 
-    def __delitem__(self, key: IntOrSlice) -> None:
+    def __delitem__(self, key: LookupKey) -> None:
         """Delete the character or slice of text."""
         self[key] = ""
 
-    def __getitem__(self, key: IntOrSlice) -> str:
+    def __getitem__(self, key: LookupKey) -> str:
         """Get a character or a slice of text."""
         start, end = self._parse_key(key)
         if start == end:
@@ -154,7 +155,7 @@ class AbstractMutableString:
             return self.text()
         return self._get_text(start, end)
 
-    def _parse_key(self, key: IntOrSlice):
+    def _parse_key(self, key: LookupKey):
         """Get start and end values from key. Called by __[gs]etitem__."""
         total = len(self)
         if isinstance(key, slice):
@@ -164,6 +165,7 @@ class AbstractMutableString:
             if key < 0:
                 key += total
             if 0 <= key < total:
+                assert isinstance(key, int)
                 return key, key + 1
             raise IndexError("index out of range")
         if end < start:

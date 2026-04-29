@@ -2,6 +2,9 @@
   <dictionary name="project">
     <words>
       <w>formatstr</w>
+      <w>latin</w>
+      <w>lstrip</w>
+      <w>rstrip</w>
       <w>weakref</w>
     </words>
   </dictionary>
