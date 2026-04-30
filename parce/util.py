@@ -24,6 +24,7 @@ Various utility classes and functions.
 This module only depends on the Python standard library.
 
 """
+from __future__ import annotations
 
 import bisect
 import codecs
@@ -31,10 +32,25 @@ import contextlib
 import functools
 import os.path
 import sys
-import threading
 import types
-import weakref
+from threading import Lock
+from typing import (
+    TYPE_CHECKING, Callable, Optional, Any, Type, Dict, Union,
+    TypeVar, ParamSpec, overload, cast, Concatenate, Generic, List,
+    Tuple, Iterator, Iterable, Sequence
+)
+from weakref import WeakKeyDictionary, WeakMethod
 
+if TYPE_CHECKING:
+    from .standardaction import StandardAction
+    from .tree import Token, TokenOrContext
+    from .language import Language
+    from .transform import Transform
+    from .typeinfo import Encoding
+
+P = ParamSpec("P")
+R = TypeVar("R")
+T = TypeVar("T")
 
 class Dispatcher:
     """Dispatches calls via an instance to methods based on the first argument.
@@ -109,24 +125,35 @@ class Dispatcher:
         Default function called: 1 2
 
     """
+    _name: str
 
-    def __init__(self, default_func=None):
-        self._lock = threading.Lock()
-        self._table = {}
-        self._tables = weakref.WeakKeyDictionary()
-        self._default_func = default_func
+    def __init__(self, default_func: Optional[Callable[..., None]] = None):
+        self._lock: Lock = Lock()
+        self._table: Dict[Any, str] = {}  # (provided_arg, function_name)
+        self._tables: WeakKeyDictionary[Type[Any], Dict[Any, Callable]] = WeakKeyDictionary()
+        self._default_func: Optional[Callable[..., None]] = default_func
 
-    def __set_name__(self, owner, name):
+    def __set_name__(self, _, name: str) -> None:
         self._name = name
 
-    def __call__(self, *args):
+    def __call__(self, *args: Any) -> Callable[..., None]:
         def decorator(func):
             for a in args:
                 self._table[a] = func.__name__
             return func
         return decorator
 
-    def __get__(self, instance, owner):
+    @overload
+    def __get__(self, instance: None, owner: Type[T]) -> Dispatcher:
+        """Called when accessed via the class: MyClass.dispatch"""
+        ...
+
+    @overload
+    def __get__(self, instance: T, owner: Type[T]) -> _Dispatcher:
+        """Called when accessed via an instance: instance.dispatch"""
+        ...
+
+    def __get__(self, instance: Optional[T], owner: Type[T]) -> Union[_Dispatcher, T]:
         try:
             table = self._tables[owner]
         except KeyError:
@@ -145,29 +172,41 @@ class Dispatcher:
                     for d in reversed(dispatchers):
                         _table.update(d._table)
                     # now, store the actual functions instead of their names
-                    table = self._tables[owner] = {a: getattr(owner, name)
-                                for a, name in _table.items()}
-        return _Dispatcher(self, table, instance, owner)
+                    table = self._tables[owner] = {
+                        a: getattr(owner, name)
+                        for a, name in _table.items()
+                    }
+        # noinspection PyUnboundLocalVariable
+        return _Dispatcher(self, table, instance, owner)  # table is valid by this point - SP
 
+DispatcherTable = Dict[str, Callable[[Union[str, Type[T]], P.args, P.kwargs], Any]]
 
 class _Dispatcher:
     """Helper class for Dispatcher."""
     __slots__ = ("_dispatcher", "_table", "_instance", "_owner")
-    def __init__(self, dispatcher, table, instance, owner):
-        self._dispatcher = dispatcher
-        self._table = table
-        self._instance = instance
-        self._owner = owner
 
-    def __repr__(self):
+    def __init__(
+        self,
+        dispatcher: Dispatcher,
+        table: DispatcherTable,
+        instance: Optional[T],
+        owner: Type[T]
+    ):
+        self._dispatcher: Dispatcher = dispatcher
+        self._table: DispatcherTable = table
+        self._instance: Optional[T] = instance
+        self._owner: Type[T] = owner
+
+    def __repr__(self) -> str:
         return "<{}.{} {}.{} of {}>".format(
             self._dispatcher.__class__.__module__,
             self._dispatcher.__class__.__name__,
             self._owner.__name__,
             self._dispatcher._name,
-            repr(self._instance))
+            repr(self._instance)
+        )
 
-    def __call__(self, key, *args, **kwargs):
+    def __call__(self, key: Any, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the stored method based on the key (first argument) with the
         other arguments."""
         f = self._table.get(key)
@@ -178,20 +217,23 @@ class _Dispatcher:
             return f(key, *args, **kwargs)
 
     @property
-    def default(self):
+    def default(self) -> Optional[Callable[P, R]]:
         """The bound method specified as default, if any."""
         f = self._dispatcher._default_func
         if f:
             return f.__get__(self._instance, self._owner)
 
-    def get(self, key):
+    def get(self, key: Any) -> Optional[Callable[P, R]]:
         """Return the bound method for the key, without calling it."""
         f = self._table.get(key)
         if f:
-            return f.__get__(self._instance, self._owner)
+            # Cast is here for typehint compatibility
+            return cast(types.FunctionType, f).__get__(self._instance, self._owner)
 
+ObserverFunc = Callable[Concatenate["Observable", P], R]
+ObserverFuncCallable = Union[Callable[P, R], ObserverFunc[P, R]]
 
-class _Observer:
+class _Observer(Generic[P, R]):
     """Helper for Observable class.
 
     The magic lt/gt methods are to help with sorting on priority and the eq/ne
@@ -199,49 +241,67 @@ class _Observer:
 
     """
     __slots__ = ('func', 'once', 'priority', 'call')
-    def __init__(self, func, once=None, prepend_self=False, priority=0):
+
+    call: ObserverFunc[P, R]
+
+    def __init__(
+        self,
+        func: ObserverFuncCallable,
+        once: Optional[bool] = None,
+        prepend_self: bool = False,
+        priority: int = 0
+    ):
         if isinstance(func, types.MethodType):
-            func = weakref.WeakMethod(func)
+            func = WeakMethod(func)
             self.call = self.call_weakmethod_with_self if prepend_self else self.call_weakmethod
         else:
             self.call = func if prepend_self else self.call_func
-        self.func = func
-        self.once = once
-        self.priority = priority
+        self.func: ObserverFuncCallable = func
+        self.once: Optional[bool] = once
+        self.priority: int = priority
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<Observer for {}>".format(self.func)
 
-    def __eq__(self, other):
+    def __eq__(self, other: _Observer) -> bool:
         if type(other) is _Observer:
             return self.func == other.func
         return NotImplemented
 
-    def __ne__(self, other):
+    def __ne__(self, other: _Observer) -> bool:
         if type(other) is _Observer:
             return self.func != other.func
         return NotImplemented
 
-    def __lt__(self, other):
+    def __lt__(self, other: _Observer) -> bool:
         if type(other) is _Observer:
             return self.priority < other.priority
         return NotImplemented
 
-    def __gt__(self, other):
+    def __gt__(self, other: _Observer) -> bool:
         if type(other) is _Observer:
             return self.priority > other.priority
         return NotImplemented
 
-    def call_func(self, observable, *args, **kwargs):
-        return self.func(*args, **kwargs)
+    # noinspection PyUnusedLocal
+    def call_func(self, observable: Observable, *args: P.args, **kwargs: P.kwargs) -> R:
+        # noinspection PyUnnecessaryCast
+        func = cast(Callable[P, R], self.func)  # for typehint compatibility - SP
+        return func(*args, **kwargs)
 
-    def call_weakmethod(self, observable, *args, **kwargs):
+    # noinspection PyUnusedLocal
+    def call_weakmethod(self, observable: Observable, *args: P.args, **kwargs: P.kwargs) -> Optional[R]:
         func = self.func()
         if func:
             return func(*args, **kwargs)
         self.once = True
 
-    def call_weakmethod_with_self(self, observable, *args, **kwargs):
+    def call_weakmethod_with_self(
+        self,
+        observable: Observable,
+        *args: P.args,
+        **kwargs: P.kwargs
+    ) -> Optional[R]:
         func = self.func()
         if func:
             return func(observable, *args, **kwargs)
@@ -271,7 +331,7 @@ class Observable:
         >>> o.emit('test', 1)   # in a method of your Observable subclass
         slot called: 1
 
-    Is is also possible to use :meth:`emit` in a :ref:`with <with>` context. In
+    It is also possible to use :meth:`emit` in a :ref:`with <with>` context. In
     that case the return values of the connected functions are collected and if
     they are a context manager, they are entered as well. An example::
 
@@ -299,9 +359,16 @@ class Observable:
 
     """
     def __init__(self):
-        self._callbacks = {}
+        self._callbacks: Dict[str, List[_Observer]] = {}
 
-    def connect(self, event, func, once=False, prepend_self=False, priority=0):
+    def connect(
+        self,
+        event: str,
+        func: ObserverFuncCallable,
+        once: bool = False,
+        prepend_self: bool = False,
+        priority: int = 0
+    ) -> None:
         """Register a function to be called when a certain event occurs.
 
         The ``event`` should be a string or any hashable object that identifies
@@ -319,7 +386,7 @@ class Observable:
         if observer not in slots:
             bisect.insort_right(slots, observer)
 
-    def disconnect(self, event, func):
+    def disconnect(self, event: str, func: ObserverFuncCallable) -> None:
         """Remove a previously registered callback function."""
         try:
             slots = self._callbacks[event]
@@ -333,7 +400,7 @@ class Observable:
         if not slots:
             del self._callbacks[event]
 
-    def disconnect_all(self, event=None):
+    def disconnect_all(self, event: Optional[str] = None) -> None:
         """Disconnect all functions (from the event).
 
         If event is None, disconnects all connected functions from all events.
@@ -347,7 +414,7 @@ class Observable:
             except KeyError:
                 pass
 
-    def has_connections(self, event):
+    def has_connections(self, event: str) -> bool:
         """Return True when there is at least one callback registered for the event.
 
         This can be used before performing some task, the task maybe then can
@@ -356,7 +423,7 @@ class Observable:
         """
         return event in self._callbacks
 
-    def is_connected(self, event, func):
+    def is_connected(self, event: str, func: ObserverFuncCallable) -> bool:
         """Return True if func is connected to event."""
         try:
             slots = self._callbacks[event]
@@ -364,7 +431,7 @@ class Observable:
             return False
         return _Observer(func) in slots
 
-    def emit(self, event, *args, **kwargs):
+    def emit(self, event: str, *args: P.args, **kwargs: P.kwargs) -> contextlib.ExitStack[R]:
         """Call all callbacks for the event.
 
         Returns a :class:`contextlib.ExitStack` instance. When any of the
@@ -373,7 +440,8 @@ class Observable:
         exited.
 
         """
-        s = contextlib.ExitStack()
+        # noinspection PyAbstractClass
+        s = contextlib.ExitStack()  # According to the documentation this can be instantiated - SP
         try:
             slots = self._callbacks[event]
         except KeyError:
@@ -437,30 +505,31 @@ class Switch:
     __slots__ = ('_value',)
 
     def __init__(self):
-        self._value = 0
+        self._value: Union[int, WeakKeyDictionary[Any, Switch]] = 0  # TODO - change key from Any to more specific type - SP
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self._value += 1
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _, __, ___) -> None:
         self._value -= 1
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self._value)
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance: T, _) -> Switch:
         try:
             return self._value[instance]
         except TypeError:
             # value still was 0, replace it with a weakref dict
-            self._value = weakref.WeakKeyDictionary()
+            self._value = WeakKeyDictionary()
         except KeyError:
             pass
+        assert isinstance(self._value, WeakKeyDictionary)  # for typechecker - SP
         s = self._value[instance] = type(self)()
         return s
 
 
-def object_locker():
+def object_locker() -> Callable[[Any], contextlib._GeneratorContextManager[None, None, None]]:
     """Return a callable that can hold a lock on an object.
 
     The Lock is automatically created when requested for the first time, and
@@ -493,14 +562,14 @@ def object_locker():
 
     """
     locker = {}
-    locker_lock = threading.Lock()
+    locker_lock = Lock()
 
     def lock_object(obj):
         with locker_lock:
             try:
                 return locker[obj]
             except KeyError:
-                lock = locker[obj] = threading.Lock()
+                lock = locker[obj] = Lock()
                 @contextlib.contextmanager
                 def cleanup():
                     try:
@@ -512,34 +581,34 @@ def object_locker():
     return lock_object
 
 
-def cached_method(func):
+def cached_method(func: Callable[Concatenate[T, P], R]) -> Callable[Concatenate[T, P], R]:
     """Wrap a method and caches its return value.
 
     The method argument tuple should be hashable. Keyword arguments are not
     supported. The cache is thread-safe. Does not keep a reference to the
     instance.
 
+    Tweaked to appease the typechecker - SP
     """
     lock = object_locker()
-    cache = weakref.WeakKeyDictionary()
+    cache: WeakKeyDictionary[T, Dict[Tuple[Any, ...], R]] = WeakKeyDictionary()
 
     @functools.wraps(func)
-    def wrapper(self, *args):
+    def wrapper(self: T, *args: P.args) -> R:
         with lock(self):
-            try:
-                return cache[self][args]
-            except KeyError:
-                v = cache.setdefault(self, {})[args] = func(self, *args)
-                return v
+            instance_cache = cache.setdefault(self, {})
+            if args not in instance_cache:
+                instance_cache[args] = func(self, *args)
+            return instance_cache[args]
     return wrapper
 
 
-def cached_property(func):
+def cached_property(func: Callable[Concatenate[T, P], R]) -> property:
     """Like property, but caches the computed value."""
     return property(cached_method(func))
 
 
-def cached_func(func):
+def cached_func(func: Callable[Concatenate[T, P], R]) -> Callable[Concatenate[T, P], R]:
     """Wrap a normal function and caches the return value.
 
     The function's argument tuple should be hashable; keyword arguments are not
@@ -548,12 +617,16 @@ def cached_func(func):
     """
     cache = caching_dict(func, True)
     @functools.wraps(func)
-    def wrapper(*args):
+    def wrapper(*args: P.args) -> R:
         return cache[args]
     return wrapper
 
 
-def caching_dict(func, unpack=False, cache_none=True):
+def caching_dict(
+    func: Callable[Concatenate[T, P], R],
+    unpack: bool = False,
+    cache_none: bool = True
+) -> Dict[Any, R]:
     """Create a dict with a thread-safe factory function for missing keys.
 
     When a key is not present, the factory function is called. The difference
@@ -567,7 +640,7 @@ def caching_dict(func, unpack=False, cache_none=True):
     request.
 
     """
-    lock = threading.Lock()
+    lock = Lock()
 
     if unpack:
         if cache_none:
@@ -601,7 +674,7 @@ def caching_dict(func, unpack=False, cache_none=True):
     return cache()
 
 
-def file_cache(func):
+def file_cache(func: Callable[Concatenate[T, P], R]) -> Dict[str, Tuple[float, R]]:
     """Return a dict that caches the factory function results.
 
     The function should accept one argument which is assumed to be a filename.
@@ -610,7 +683,7 @@ def file_cache(func):
     of the file can't be determined the function result is not cached.
 
     """
-    lock = threading.Lock()
+    lock = Lock()
 
     class filecache(dict):
         def __getitem__(self, key):
@@ -632,18 +705,22 @@ def file_cache(func):
 
 
 class Symbol:
-    """An unique object that has a name; the same name returns the same object."""
-    def __repr__(self):
+    """A unique object that has a name; the same name returns the same object."""
+    def __repr__(self) -> str:
         return self._name
 
     @cached_func
-    def __new__(cls, name):
+    def __new__(cls, name: str) -> Symbol:
         obj = object.__new__(cls)
         obj._name = name
         return obj
 
 
-def fix_boundaries(stream, start, end):
+def fix_boundaries(
+    stream: Iterable[Tuple[int, Optional[int]]],
+    start: int,
+    end: Optional[int]
+) -> Iterator[Tuple[Optional[int], ...]]:  # TODO - Maybe remove the optional from the return type? - SP
     """Yield all items from the stream of tuples.
 
     The first two items of each tuple are regarded as pos and end. This
@@ -671,7 +748,10 @@ def fix_boundaries(stream, start, end):
             yield i
 
 
-def merge_adjacent(stream, factory=tuple):
+def merge_adjacent(
+    stream: Iterable[Tuple[Any, ...]],
+    factory: Callable[..., Any] = tuple
+) -> Iterator[Any]:
     """Yield items from a stream of tuples.
 
     The first two items of each tuple are regarded as pos and end.
@@ -692,7 +772,7 @@ def merge_adjacent(stream, factory=tuple):
         yield factory(pos, end, *rest)
 
 
-def merge_adjacent_actions(tokens):
+def merge_adjacent_actions(tokens: Iterable[Token]) -> Iterator[Tuple[int, int, StandardAction]]:
     """Yield three-tuples (pos, end, action).
 
     Adjacent actions that are the same are merged into
@@ -702,18 +782,22 @@ def merge_adjacent_actions(tokens):
     return merge_adjacent((t.pos, t.end, t.action) for t in tokens)
 
 
-def merge_adjacent_actions_with_language(tokens):
+def merge_adjacent_actions_with_language(
+    tokens: Iterable[Token]
+) -> Iterator[Tuple[int, int, StandardAction, Language]]:
     """Yield four-tuples (pos, end, action, language).
 
     Adjacent actions that are the same and occurred in the same language
     are merged into one range.
 
     """
-    return merge_adjacent((t.pos, t.end, t.action, t.parent.lexicon.language)
-                          for t in tokens)
+    return merge_adjacent(
+        (t.pos, t.end, t.action, t.parent.lexicon.language)
+        for t in tokens
+    )
 
 
-def get_bom_encoding(data):
+def get_bom_encoding(data: bytes) -> Tuple[Optional[Encoding], bytes]:
     """Get the BOM (Byte Order Mark) of bytes ``data``, if any.
 
     A two-tuple is returned (encoding, data). If the data starts with a BOM
@@ -734,7 +818,7 @@ def get_bom_encoding(data):
     return None, data
 
 
-def split_list(l, separator):
+def split_list(l: List[T], separator: T) -> Iterator[List[T]]:
     """Split list on items that compare equal to separator.
 
     Yields result lists that may be empty.
@@ -750,16 +834,16 @@ def split_list(l, separator):
         yield l[i:]
 
 
-def unroll(obj):
+def unroll(obj: Sequence[T]) -> Iterator[T]:
     """Unroll a tuple or list.
 
     If the object is a tuple or list, yields the unrolled members recursively.
-    Otherwise just the object itself is yielded.
+    Otherwise, just the object itself is yielded.
 
     """
     if type(obj) in (tuple, list):
         stack = []
-        gen = iter(obj)
+        gen: Iterable[T] = iter(obj)
         while True:
             for obj in gen:
                 if type(obj) in (tuple, list):
@@ -777,7 +861,7 @@ def unroll(obj):
         yield obj
 
 
-def tokens(nodes, reverse=False):
+def tokens(nodes: Sequence[TokenOrContext], reverse: bool = False) -> Iterator[Token]:
     """Helper to yield tokens from the iterable of nodes.
 
     If ``reverse`` is set to True, yields the tokens of the nodes in backward
@@ -788,12 +872,17 @@ def tokens(nodes, reverse=False):
         nodes = reversed(nodes)
     for n in nodes:
         if n.is_token:
-            yield n
+            yield n  # type: ignore - n is Token - SP
         else:
-            yield from n.tokens(reverse)
+            yield from n.tokens(reverse)  # type: ignore - n is Context - SP
 
 
-def language_sister_class(language, template, base, try_parents=False):
+def language_sister_class(
+    language: Language,
+    template: str,
+    base: Type[Transform],
+    try_parents: bool = False
+) -> Optional[Type[Transform]]:
     """Find a ``language`` sister class in the same module, with a name that
     matches the ``template``, and which is a subclass of ``base``.
 
@@ -818,4 +907,3 @@ def language_sister_class(language, template, base, try_parents=False):
         cls = getattr(module, name, None)
         if isinstance(cls, type) and issubclass(cls, base):
             return cls
-

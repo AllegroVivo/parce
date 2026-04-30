@@ -6,7 +6,11 @@
       <w>latin</w>
       <w>localfile</w>
       <w>lstrip</w>
+      <w>nend</w>
+      <w>npos</w>
+      <w>nrest</w>
       <w>rstrip</w>
+      <w>weakmethod</w>
       <w>weakref</w>
     </words>
   </dictionary>
