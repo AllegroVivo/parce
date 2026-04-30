@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Tuple, Optional, Literal, Union
+from typing import TYPE_CHECKING, Tuple, Literal, Union
 
 if TYPE_CHECKING:
-    from .lexicon import Lexicon
     from .standardaction import StandardAction
 
 
@@ -46,4 +45,3 @@ Encoding = Union[_CommonEncodings, str]
 MimeType = Union[_CommonMimeTypes, str]
 
 Lexeme = Tuple[int, str, StandardAction]
-RootLexicon = Optional[Lexicon]
