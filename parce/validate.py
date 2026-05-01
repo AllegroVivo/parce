@@ -16,36 +16,43 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+from __future__ import annotations
 
 import collections
 import re
 import reprlib
+from typing import TYPE_CHECKING, Set, Optional
 
 import parce
 from . import introspect
 from .lexicon import Lexicon
 from .ruleitem import variations, a_number
 
+if TYPE_CHECKING:
+    from .lexicon import RuleTuple
+    from .language import Language
+    from .target import Target
+    from .transform import Transform
+
 
 class LexiconValidator:
 
-    def __init__(self, lexicon):
-        self.lexicon = lexicon
-        self.errors = set()
-        self.warnings = set()
+    def __init__(self, lexicon: Lexicon):
+        self.lexicon: Lexicon = lexicon
+        self.errors: Set[str] = set()
+        self.warnings: Set[str] = set()
 
-    def error(self, msg, lexicon=None):
+    def error(self, msg: str, lexicon: Optional[Lexicon] = None) -> None:
         """Add message to errors."""
         msg = "{}: error: {}".format(lexicon or self.lexicon, msg)
         self.errors.add(msg)
 
-    def warning(self, msg, lexicon=None):
+    def warning(self, msg: str, lexicon: Optional[Lexicon] = None) -> None:
         """Add message to warnings."""
         msg = "{}: warning: {}".format(lexicon or self.lexicon, msg)
         self.warnings.add(msg)
 
-    def validate(self):
+    def validate(self) -> bool:
         """Validate a lexicon.
 
         Errors and warnings are left in the ``errors`` and ``warnings``
@@ -89,7 +96,7 @@ class LexiconValidator:
             self.error("can't have both default_action and default_target")
         return not self.errors
 
-    def validate_pattern(self, pattern, n):
+    def validate_pattern(self, pattern: str, n: int) -> None:
         """Validate a regular expression pattern."""
         try:
             rx = re.compile(pattern, self.lexicon.re_flags)
@@ -99,7 +106,7 @@ class LexiconValidator:
             if rx.match(''):
                 self.warning("rule #{0}: pattern {1} matches the empty string".format(n, repr(pattern)))
 
-    def validate_rule(self, rule, n):
+    def validate_rule(self, rule: RuleTuple, n: int) -> None:
         """Validate a rule, which should be action, target[, target, ...].
 
         Does not look at the action, but checks whether all the targets are
@@ -112,7 +119,7 @@ class LexiconValidator:
                 if target is not a_number and not isinstance(target, (int, Lexicon)):
                     self.error("rule #{0}: invalid target: {1}".format(n, target))
 
-    def check_default_target(self, target):
+    def check_default_target(self, target: Target) -> None:
         """Check whether this default target could lead to circular references.
 
         This could hang the parser, and we wouldn't like to have that :-)
@@ -173,7 +180,7 @@ class LexiconValidator:
                 break
 
 
-def validate_language(lang):
+def validate_language(lang: Language) -> bool:
     """Validate all lexicons in this language.
 
     Errors and warnings are printed to stdout. If there are errors,
@@ -194,7 +201,7 @@ def validate_language(lang):
     return not errors
 
 
-def validate_transform(transform, language):
+def validate_transform(transform: Transform, language: Language) -> bool:
     """Check whether the Transform has a method for every lexicon.
 
     Returns False when method names are not defined. Prints the missing names to

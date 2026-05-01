@@ -81,8 +81,16 @@ The following events can be yielded (simply module constants):
     current line excluding the current indent).
 
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional, Sequence, Iterator, Dict
 
 import parce.util
+
+if TYPE_CHECKING:
+    from .document import Block, Cursor
+    from .language import Language
+    from .tree import Token
 
 # events w/o args
 INDENT          = 1
@@ -100,7 +108,6 @@ NO_STRIP        = 128
 NO_INDENT       = 256
 
 
-
 class IndentInfo:
     """Contains information about how to indent a block.
 
@@ -108,30 +115,32 @@ class IndentInfo:
     :meth:`AbstractIndenter.indent`.
 
     """
-    __slots__ = ("block", "indents", "dedents_start", "dedents_end", "indent",
-                 "prefer_indent", "_state")
+    __slots__ = (
+        "block", "indents", "dedents_start", "dedents_end", "indent",
+        "prefer_indent", "_state"
+    )
 
-    def __init__(self, block):
-        self.block = block          #: the Block
-        self.indents = []           #: the indent events (None or string)
-        self.dedents_start = 0      #: the number of dedents at the start of the line
-        self.dedents_end = 0        #: the number of dedents later in the line
-        self.indent = None          #: the current indent
-        self.prefer_indent = None   #: a preferred, special case indent
-        self._state = 0             #: mask of BLANK, NO_STRIP, NO_INDENT
+    def __init__(self, block: Block):
+        self.block: Block = block                   #: the Block
+        self.indents: List[Optional[str]] = []      #: the indent events (None or string)
+        self.dedents_start: int = 0                 #: the number of dedents at the start of the line
+        self.dedents_end: int = 0                   #: the number of dedents later in the line
+        self.indent: Optional[str] = None           #: the current indent
+        self.prefer_indent: Optional[str] = None    #: a preferred, special case indent
+        self._state: int = 0                        #: mask of BLANK, NO_STRIP, NO_INDENT
 
     @property
-    def allow_indent(self):
+    def allow_indent(self) -> bool:
         """Whether the indent of this line may be changed."""
         return self._state & NO_INDENT == 0
 
     @property
-    def allow_strip(self):
+    def allow_strip(self) -> bool:
         """Whether trailing whitespace may be stripped of this line."""
         return self._state & NO_STRIP == 0
 
     @property
-    def is_blank(self):
+    def is_blank(self) -> bool:
         return self._state & BLANK == BLANK
 
 
@@ -143,12 +152,12 @@ class AbstractIndenter:
     """
 
     #: the string to indent each level with, defaulting to two spaces.
-    indent_string = "  "
+    indent_string: str = "  "
 
     #: whether to also indent blank lines
-    indent_blank_lines = True
+    indent_blank_lines: bool = True
 
-    def indent(self, cursor):
+    def indent(self, cursor: Cursor):
         """Indent all the lines in the cursor's range.
 
         This method scans the document always from the beginning, although it
@@ -158,7 +167,7 @@ class AbstractIndenter:
 
         """
         prev_info = None
-        indents = ['']
+        indents: List[Optional[str]] = ['']
 
         with cursor.document() as d:
             for block in d.blocks():
@@ -188,6 +197,8 @@ class AbstractIndenter:
                         else:
                             new_indent = indents[-1]
                         if new_indent != info.indent:
+                            assert info.indent is not None  # for typechecker - SP
+                            assert new_indent is not None  # for typechecker - SP
                             d[block.pos:block.pos + len(info.indent)] = new_indent
 
                 # dedents at end of current line
@@ -199,7 +210,7 @@ class AbstractIndenter:
 
                 prev_info = info
 
-    def auto_indent(self, cursor):
+    def auto_indent(self, cursor: Cursor) -> None:
         """Adjust the indent of the single block at the Cursor's pos."""
         block = b = cursor.block()
         info = self.indent_info(block)
@@ -217,6 +228,7 @@ class AbstractIndenter:
                         if 0 <= depth < len(info.indents):
                             # we found the indent to use
                             index = len(info.indents) - depth - 1
+                            assert info.indent is not None  # for typechecker - SP
                             new_indent = info.indent + (info.indents[index] or self.indent_string)
                             break
                         depth -= len(info.indents)
@@ -228,9 +240,11 @@ class AbstractIndenter:
                         depth += info.dedents_start
             if new_indent != current_indent:
                 with cursor.document() as d:
+                    assert current_indent is not None  # for typechecker - SP
+                    assert new_indent is not None  # for typechecker - SP
                     d[block.pos:block.pos + len(current_indent)] = new_indent
 
-    def increase_indent(self, cursor):
+    def increase_indent(self, cursor: Cursor) -> None:
         """Increase the indent in the Cursor's lines."""
         with cursor.document() as d:
             for b in cursor.blocks():
@@ -238,7 +252,7 @@ class AbstractIndenter:
                 if info.allow_indent:
                     d.insert(b.pos, self.indent_string)
 
-    def decrease_indent(self, cursor):
+    def decrease_indent(self, cursor: Cursor) -> None:
         """Decrease the indent in the Cursor's lines."""
         # TODO: 'd be nice to make it smarter and search backwards for indents.
         with cursor.document() as d:
@@ -251,7 +265,7 @@ class AbstractIndenter:
                         remove = info.indent
                     del d[b.pos:b.pos + len(remove)]
 
-    def strip_trailing_blanks(self, cursor, chars=None):
+    def strip_trailing_blanks(self, cursor: Cursor, chars: Optional[str] = None) -> None:
         """Strip trailing blanks off the selected lines.
 
         Lines that don't allow changing the indent are skipped. The ``chars``
@@ -266,7 +280,11 @@ class AbstractIndenter:
                     if len(new_text) != len(b):
                         del d[b.pos+len(new_text):b.end]
 
-    def indent_info(self, block, prev_indents=()):
+    def indent_info(
+        self,
+        block: Block,
+        prev_indents: Sequence[Optional[str]] = ()
+    ) -> IndentInfo:
         """Return an IndentInfo object for the specified block."""
 
         info = IndentInfo(block)
@@ -295,7 +313,7 @@ class AbstractIndenter:
                     info.dedents_end += 1
             elif event is NO_DEDENT:
                 find_dedents = False
-            else: # event in (BLANK, NO_INDENT, NO_STRIP):
+            else:  # event in (BLANK, NO_INDENT, NO_STRIP):
                 info._state |= event
 
         # if no CURRENT_INDENT was yielded, just pick the first whitespace if allowed
@@ -304,10 +322,16 @@ class AbstractIndenter:
                 text = block.text()
                 info.indent = text[:-len(text.lstrip())]
             else:
-                info.indent == ""
+                info.indent = ""
         return info
 
-    def indent_events(self, block, prev_indents=()):
+    # TODO: More specificity over event type maybe? (Shouldn't just return int)
+    # noinspection PyUnreachableCode
+    def indent_events(
+        self,
+        block: Block,
+        prev_indents: Sequence[Optional[str]] = ()
+    ) -> Iterator[int]:
         """Implement this method to yield indenting events for the block."""
         return
         yield
@@ -324,16 +348,20 @@ class Indenter(AbstractIndenter):
     #: Indent class in a Language module space (see :meth:`find_indent`).
     #:
     #: .. versionadded:: 0.28.0
-    indent_name_template = "{}Indent"
+    indent_name_template: str = "{}Indent"
 
     def __init__(self):
-        self._indents = parce.util.caching_dict(self.find_indent)
+        self._indents: Dict[Language, Optional[Indent]] = parce.util.caching_dict(self.find_indent)
 
-    def indent_events(self, block, prev_indents=()):
+    def indent_events(
+        self,
+        block: Block,
+        prev_indents: Sequence[Optional[str]] = ()
+    ):
         """Implemented to use Indent subclasses for the specified language."""
         tokens = block.tokens()
         if tokens:
-            curlang = tokens[0].parent.lexicon.language
+            curlang = tokens[0].parent.lexicon.language  # type: ignore - tokens[0] is always a Context - SP
             i = 0
             for j in range(1, len(tokens)):
                 newlang = tokens[j].parent.lexicon.language
@@ -347,15 +375,15 @@ class Indenter(AbstractIndenter):
             if indenter:
                 yield from indenter.events(block, tokens[i:], prev_indents)
 
-    def get_indent(self, language):
-        """Return a Indent class instance for the specified language."""
+    def get_indent(self, language: Language) -> Optional[Indent]:
+        """Return an Indent class instance for the specified language."""
         return self._indents[language]
 
-    def add_indent(self, language, indent):
-        """Add a Indent instance for the specified language."""
+    def add_indent(self, language: Language, indent: Indent) -> None:
+        """Add an Indent instance for the specified language."""
         self._indents[language] = indent
 
-    def find_indent(self, language):
+    def find_indent(self, language: Language) -> Optional[Indent]:
         """If no Indent was added, try to find a predefined one.
 
         This is done by looking for a Indent subclass in the language's
@@ -374,12 +402,13 @@ class Indenter(AbstractIndenter):
 
 class Indent:
     """The base class for language-specific indenters."""
-    def events(self, block, tokens, prev_indents):
-        """Implement this to yield indent events for the tokens.
-
-
-        """
+    # noinspection PyUnreachableCode
+    def events(
+        self,
+        block: Block,
+        tokens: Sequence[Token],
+        prev_indents: Sequence[Optional[str]] = ()
+    ) -> Iterator[int]:
+        """Implement this to yield indent events for the tokens."""
         return
         yield
-
-

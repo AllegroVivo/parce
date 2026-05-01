@@ -1310,7 +1310,7 @@ class Range:
         else:
             yield self.ancestor, slice(start_idx, None)
 
-    def tokens(self) -> Iterable[Token]:
+    def tokens(self) -> Iterator[Token]:
         """Yield all tokens in this range.
 
         The first and last tokens may overlap with the start and end positions.

@@ -626,7 +626,7 @@ def caching_dict(
     func: Callable[Concatenate[T, P], R],
     unpack: bool = False,
     cache_none: bool = True
-) -> Dict[Any, R]:
+) -> Dict[T, R]:
     """Create a dict with a thread-safe factory function for missing keys.
 
     When a key is not present, the factory function is called. The difference
@@ -717,7 +717,7 @@ class Symbol:
 
 
 def fix_boundaries(
-    stream: Iterable[Tuple[int, Optional[int]]],
+    stream: Iterator[Tuple[int, Optional[int]]],
     start: int,
     end: Optional[int]
 ) -> Iterator[Tuple[Optional[int], ...]]:  # TODO - Maybe remove the optional from the return type? - SP
@@ -880,9 +880,9 @@ def tokens(nodes: Sequence[TokenOrContext], reverse: bool = False) -> Iterator[T
 def language_sister_class(
     language: Language,
     template: str,
-    base: Type[Transform],
+    base: Type[T],
     try_parents: bool = False
-) -> Optional[Type[Transform]]:
+) -> Optional[Type[T]]:
     """Find a ``language`` sister class in the same module, with a name that
     matches the ``template``, and which is a subclass of ``base``.
 

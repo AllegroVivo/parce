@@ -1,12 +1,17 @@
 <component name="ProjectDictionaryState">
   <dictionary name="project">
     <words>
+      <w>baseformat</w>
       <w>classmethod</w>
+      <w>curlang</w>
+      <w>dedents</w>
       <w>formatstr</w>
       <w>latin</w>
       <w>localfile</w>
       <w>lstrip</w>
       <w>nend</w>
+      <w>newcontext</w>
+      <w>newlang</w>
       <w>npos</w>
       <w>nrest</w>
       <w>rstrip</w>
