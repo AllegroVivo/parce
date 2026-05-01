@@ -8,14 +8,18 @@
       <w>curlang</w>
       <w>dedents</w>
       <w>endingwith</w>
+      <w>exprs</w>
       <w>formatstr</w>
       <w>innergen</w>
       <w>latin</w>
       <w>localfile</w>
       <w>lstrip</w>
+      <w>maxcount</w>
+      <w>mincount</w>
       <w>nend</w>
       <w>newcontext</w>
       <w>newlang</w>
+      <w>nocases</w>
       <w>npos</w>
       <w>nrest</w>
       <w>rstrip</w>

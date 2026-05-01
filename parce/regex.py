@@ -21,14 +21,27 @@
 """
 Utility module with functions to construct or manipulate regular expressions.
 """
+from __future__ import annotations
 
+from typing import (
+    TYPE_CHECKING, Sequence, Tuple, Optional, Iterator, Dict,
+    Any, Union, Set, FrozenSet, List
+)
 
 import operator
 import re
 import unicodedata
 
+if TYPE_CHECKING:
+    from .tree import TokenOrContext
+    from .transform import ItemList, Item
 
-def words2regexp(words):
+RegexpPart = Union[str, FrozenSet[Union[str, None, 'RegexpTuple']]]
+RegexpTuple = Tuple[RegexpPart, ...]
+RegexpGroup = Tuple[Set[str], Set[RegexpTuple]]
+RegexpItem = Tuple[Union[str, RegexpGroup], int, int]
+
+def words2regexp(words: Sequence[str]) -> str:
     """Convert the ``words`` iterable to an optimized regular expression.
 
     Example::
@@ -45,10 +58,11 @@ def words2regexp(words):
     r = trie_to_regexp_tuple(root)
     if suffix:
         r += (suffix,)
+    assert r is not None  # for type checker - SP
     return build_regexp(r)
 
 
-def make_charclass(chars):
+def make_charclass(chars: Sequence[str]) -> str:
     """Return a string with adjacent characters grouped.
 
     Example::
@@ -70,13 +84,15 @@ def make_charclass(chars):
             buf[-1][1] = c
         else:
             buf.append([c, c])
-    return ''.join(re.escape(chr(a)) if a == b else
-                   re.escape(chr(a) + chr(b)) if a == b - 1 else
-                   re.escape(chr(a)) + '-' + re.escape(chr(b))
-                   for a, b in buf)
+    return ''.join(
+        re.escape(chr(a)) if a == b
+        else re.escape(chr(a) + chr(b)) if a == b - 1
+        else re.escape(chr(a)) + '-' + re.escape(chr(b))
+        for a, b in buf
+    )
 
 
-def common_suffix(words):
+def common_suffix(words: Sequence[str]) -> Tuple[Sequence[str], str]:
     """Return (words, suffix), where suffix is the common suffix.
 
     If there is no common suffix, words is returned unchanged, and suffix is an
@@ -87,11 +103,11 @@ def common_suffix(words):
         (['op', 'om', 'mam', 'pap'], 'a')
 
     """
-    # make sure words is not a generator, othw we maybe can't iterate it twice
+    # make sure words is not a generator, otherwise we maybe can't iterate it twice
     if not isinstance(words, (list, tuple, set, frozenset)):
         words = tuple(words)
     suffix = []
-    for s in map(set, zip(*map(reversed, words))):
+    for s in map(set, zip(*map(reversed, words))):  # type: ignore - set is fine here - SP
         if len(s) != 1:
             break
         suffix.extend(s)
@@ -102,7 +118,7 @@ def common_suffix(words):
     return words, suffix
 
 
-def to_string(expr):
+def to_string(expr: str) -> Optional[str]:
     r"""Convert an unambiguous regexp to a plain string.
 
     If the regular expression is unambiguous and can be converted to a plain
@@ -120,10 +136,12 @@ def to_string(expr):
     The first returns None, because the dot can match multiple characters.
 
     """
+    # noinspection RegExpRedundantEscape
     if set(re.sub(r'\\(?:N\{.*?\}|.)', '', expr)) & set("^$|.()[]{}+*?"):
         return  # there are unescaped special characters like (, [, ? etc.
     # handle all escapes, there may be fails, in that case we can't use the expr as string
-    pat = (r'\\(?:'
+    pat = (
+        r'\\(?:'
         r'x([0-9a-fA-F]{2})'        # 1 hex
         r'|([afnrtv])'              # 2 normal escaped character like \n
         r'|(0[0-7]{0,2}|[0-7]{3})'  # 3 octal
@@ -131,11 +149,12 @@ def to_string(expr):
         r'|u([0-9a-fA-F]{4})'       # 5 \uxxxx
         r'|U([0-9a-fA-F]{8})'       # 6 \Uxxxxxxxx
         r'|([\^\$\|\.\(\)\[\]\{\}\+\*\?\\])'  # 7 special re char that was escaped
-        r'|N\{(.*?)\}'          # 8 named unicode character (since python 3.8)
-        r'|)')                  # fail if stray '\' is encountered
+        r'|N\{(.*?)\}'              # 8 named unicode character (since python 3.8)
+        r'|)'                       # fail if stray '\' is encountered
+    )
     repl = (
         lambda s: chr(int(s, 16)),          # hex
-        lambda s: chr({'a':7, 'f':12, 'n':10, 'r':13, 't':9, 'v':11}[s]),   # normal escape
+        lambda s: chr({'a': 7, 'f': 12, 'n': 10, 'r': 13, 't': 9, 'v': 11}[s]),   # normal escape
         lambda s: chr(int(s, 8)),           # octal
         lambda s: None,                     # backref, fail on that
         lambda s: chr(int(s, 16)),          # \uxxxx
@@ -143,9 +162,9 @@ def to_string(expr):
         lambda s: s,                        # escaped re char
         lambda s: unicodedata.lookup(s),    # named unicode, can raise KeyError
     )
-    def replace_escapes(m):
+    def replace_escapes(m: re.Match[str]) -> str:
         i = m.lastindex     # TypeError is raised if None, or if repl returns None
-        return repl[i-1](m.group(i))
+        return repl[i-1](m.group(i))  # type: ignore
     try:
         s = re.sub(pat, replace_escapes, expr)
     except (TypeError, KeyError):
@@ -154,7 +173,7 @@ def to_string(expr):
     return s
 
 
-def make_trie(words, reverse=False):
+def make_trie(words: Sequence[str], reverse: bool = False) -> Dict[str, Dict[Optional[str], Any]]:
     """Return a dict-based radix trie structure from a list of words.
 
     End-points are denoted by a None key, set to True. If reverse is set to
@@ -205,7 +224,7 @@ def make_trie(words, reverse=False):
         d[None] = True  # end
 
     # merge characters that are the only child with their parents
-    def merge(node):
+    def merge(node: Dict[str, Dict[Optional[str], Any]]) -> Iterator[Tuple[str, Dict[Optional[str], Any]]]:
         for key, node in node.items():
             if key:
                 while len(node) == 1:
@@ -216,13 +235,16 @@ def make_trie(words, reverse=False):
                     else:
                         break
                 else:
-                    node = dict(merge(node))
+                    node = dict(merge(node))  # type: ignore - SP
             yield key, node
 
     return dict(merge(root))
 
 
-def trie_to_regexp_tuple(node, reverse=False):
+def trie_to_regexp_tuple(
+    node: Dict[str, Any],
+    reverse: bool = False
+) -> Optional[RegexpTuple]:
     """Converts the trie node to a tuple of regular expression parts.
 
     A part is either a plain string expression or a frozenset instance.
@@ -338,7 +360,7 @@ def trie_to_regexp_tuple(node, reverse=False):
         return groups.pop() if len(groups) == 1 else (frozenset(groups),)
 
 
-def build_regexp(r):
+def build_regexp(r: RegexpTuple) -> str:
     """Convert a tuple to a full regular expression pattern string.
 
     The tuple is described in the :func:`trie_to_regexp_tuple` function doc
@@ -356,7 +378,7 @@ def build_regexp(r):
     adding an extra optimization to look for a common suffix.
 
     """
-    def get_items(r):
+    def get_items(r: RegexpTuple) -> Iterator[RegexpItem]:
         """Yield regexp items from tuple r in tuples (item, mincount, maxcount).
 
         An item is either a string like "aa", or a two-tuple(exprs,
@@ -405,7 +427,7 @@ def build_regexp(r):
                     else:
                         yield item, mincount, 1
 
-    def merge_items(r):
+    def merge_items(r: RegexpTuple) -> List[RegexpItem]:
         """Read items-tuples such as yielded by get_items().
 
         Returns a list of the same items, merging where possible adjacent
@@ -456,7 +478,7 @@ def build_regexp(r):
                 if len(chars) == 1:
                     group.append(re.escape(next(iter(chars))))
                 else:
-                    group.append('[' + make_charclass(chars) + ']')
+                    group.append('[' + make_charclass(chars) + ']')  # type: ignore - SP
             if strings:
                 group.extend(map(re.escape, sorted(strings)))
             if tuples:
@@ -471,5 +493,3 @@ def build_regexp(r):
             rx = '(?:' + rx + ')'
         result.append(rx + qualifier)
     return ''.join(result)
-
-

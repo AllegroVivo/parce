@@ -40,15 +40,19 @@ You can also create and populate your own :class:`Registry`.
    The global default parce :class:`Registry`.
 
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, overload, Dict, Any
 
 import collections
 import fnmatch
 import importlib
 import itertools
-import operator
 import re
 
+if TYPE_CHECKING:
+    from .typeinfo import MimeType
+    from .lexicon import Lexicon
 
 Entry = collections.namedtuple("Entry", (
     "name",
@@ -66,24 +70,28 @@ root lexicon as the key.
 """
 Entry.name.__doc__ = "A human-readable name for the file type."
 Entry.desc.__doc__ = "A short description."
-Entry.section.__doc__ = \
-"""The section, e.g. for grouped display in a menu. (If the section is empty,
-the entry needs not to be shown in a menu.)"""
+Entry.section.__doc__ = (
+    """The section, e.g. for grouped display in a menu. (If the section is empty,
+    the entry needs not to be shown in a menu.)"""
+)
 Entry.author.__doc__ = "The author."
 Entry.aliases.__doc__ = "A list of other names this lexicon can be found under."
-Entry.filenames.__doc__ = \
-"""A list of tuples (pattern, weight). A pattern is a plain filename or a
-filename with globbing characters, e.g. ``"Makefile"`` or ``"*.c"``, and the
-weight is a floating point value indicating the probability that the root
-lexicon should be chosen for this filename (0..1 range)."""
-Entry.mimetypes.__doc__ = \
-"""A list of tuples (mimetype, weight). A mimetype is a string like
-``"text/css"``, the weight is a floating point value indicating the probability
-that the root lexicon should be chosen for this filename (0..1 range)."""
-Entry.guesses.__doc__ = \
-"""A list of tuples (regexp, weight). The first 5000 characters of the contents
-are matched against the regular expression, and when it matches, the weight is
-added to the already computed weight for this root lexicon."""
+Entry.filenames.__doc__ = (
+    """A list of tuples (pattern, weight). A pattern is a plain filename or a
+    filename with globbing characters, e.g. ``"Makefile"`` or ``"*.c"``, and the
+    weight is a floating point value indicating the probability that the root
+    lexicon should be chosen for this filename (0..1 range)."""
+)
+Entry.mimetypes.__doc__ = (
+    """A list of tuples (mimetype, weight). A mimetype is a string like
+    ``"text/css"``, the weight is a floating point value indicating the probability
+    that the root lexicon should be chosen for this filename (0..1 range)."""
+)
+Entry.guesses.__doc__ = (
+    """A list of tuples (regexp, weight). The first 5000 characters of the contents
+    are matched against the regular expression, and when it matches, the weight is
+    added to the already computed weight for this root lexicon."""
+)
 
 
 class Registry(dict):
@@ -99,29 +107,64 @@ class Registry(dict):
 
     """
 
-    fallback = None #: Another :class:`Registry` the :meth:`find` method can use.
+    fallback: Optional[Registry] = None  #: Another :class:`Registry` the :meth:`find` method can use.
 
-    def __init__(self, fallback=None):
+    def __init__(self, fallback: Optional[Registry] = None):
         super().__init__()
-        self.fallback = fallback
+        self.fallback: Optional[Registry] = fallback
 
-    def copy(self):
+    def copy(self) -> Registry:
         """Return a copy of this Registry. Any fallback is reused, not copied."""
         copy = type(self)(self.fallback)
         copy.update(self)
         return copy
 
-    def add(self, lexicon_name, *,
-        name = None,
-        desc = None,
-        section = "",
-        author = "",
-        aliases = (),
-        filenames = (),
-        mimetypes = (),
-        guesses = (),
-        inherit = None,
-    ):
+    @overload
+    def add(
+        self,
+        lexicon_name: str,
+        *,
+        name: str = None,
+        desc: Optional[str] = None,
+        section: str = "",
+        author: str = "",
+        aliases: Sequence[str] = (),
+        filenames: Sequence[Tuple[str, float]] = (),
+        mimetypes: Sequence[Tuple[MimeType, float]] = (),
+        guesses: Sequence[Tuple[str, float]] = (),
+        inherit: None = None,
+    ) -> None: ...
+
+    @overload
+    def add(
+        self,
+        lexicon_name: str,
+        *,
+        name: None = None,
+        desc: Optional[str] = None,
+        section: str = "",
+        author: str = "",
+        aliases: Sequence[str] = (),
+        filenames: Sequence[Tuple[str, float]] = (),
+        mimetypes: Sequence[Tuple[MimeType, float]] = (),
+        guesses: Sequence[Tuple[str, float]] = (),
+        inherit: bool = None,
+    ) -> None: ...
+
+    def add(
+        self,
+        lexicon_name: str,
+        *,
+        name: Optional[str] = None,
+        desc: Optional[str] = None,
+        section: str = "",
+        author: str = "",
+        aliases: Sequence[str] = (),
+        filenames: Sequence[Tuple[str, float]] = (),
+        mimetypes: Sequence[Tuple[MimeType, float]] = (),
+        guesses: Sequence[Tuple[str, float]] = (),
+        inherit: Optional[bool] = None,
+    ) -> None:
         """Register or update a Language's root lexicon for a particular filename
         (patterns), particular mime types or based on contents of the file.
 
@@ -184,7 +227,12 @@ class Registry(dict):
             raise ValueError("register: desc is required")
         self[lexicon_name] = Entry(name, desc, section, author, aliases, filenames, mimetypes, guesses)
 
-    def suggest(self, filename=None, mimetype=None, contents=None):
+    def suggest(
+        self,
+        filename: Optional[str] = None,
+        mimetype: Optional[MimeType] = None,
+        contents: Optional[str] = None
+    ) -> Sequence[str]:
         """Return a list of registered language definitions, sorted on relevance.
 
         The filename has the most weight, if two have the same weight, the mimetype
@@ -198,21 +246,27 @@ class Registry(dict):
         weights = collections.defaultdict(int)
         if filename:
             for name in self:
-                weight = max((w for pat, w in self[name].filenames
-                               if fnmatch.fnmatch(filename, pat)), default=0)
+                weight = max(
+                    (w for pat, w in self[name].filenames
+                     if fnmatch.fnmatch(filename, pat)),
+                    default=0
+                )
                 if weight:
                     weights[name] += weight
         if mimetype:
             for name in self:
-                weight = max((w for mtype, w in self[name].mimetypes
-                               if mtype == mimetype), default=0)
+                weight = max(
+                    (w for mtype, w in self[name].mimetypes
+                     if mtype == mimetype),
+                    default=0
+                )
                 if weight:
                     weights[name] += weight
 
         # check the contents only if no filename/mimetype matched
         # or there were multiple matches with the same weight
         if weights:
-            names = sorted(weights, key=weights.get, reverse=True)
+            names = sorted(weights, key=weights.get, reverse=True)  # type: ignore - SP
             if len(names) == 1 or weights[names[0]] > weights[names[1]]:
                 return names
         else:
@@ -220,17 +274,19 @@ class Registry(dict):
         if contents:
             contents = contents[:5000]
             for name in names:
-                weight = sum(w for regex, w in self[name].guesses
-                               if re.search(regex, contents))
+                weight = sum(
+                    w for regex, w in self[name].guesses
+                    if re.search(regex, contents)
+                )
                 if weight:
                     weights[name] += weight
-        return sorted(weights, key=weights.get, reverse=True)
+        return sorted(weights, key=weights.get, reverse=True)  # type: ignore - SP
 
-    def qualname(self, name):
+    def qualname(self, name: str) -> Optional[str]:
         """Find a fully qualified lexicon name for the specified name.
 
         First, tries to find the exact match on the ``name`` attribute, then
-        the aliases, then a case insensitive match, and then the same for the
+        the aliases, then a case-insensitive match, and then the same for the
         Language class name.
 
         """
@@ -253,7 +309,7 @@ class Registry(dict):
             return qualname
 
     @staticmethod
-    def lexicon(qualname):
+    def lexicon(qualname: str) -> Lexicon:
         """Import the module and return the actual lexicon.
 
         Eg, for the fully qualified ``qualname`` ``"parce.lang.css.Css.root"``,
@@ -265,7 +321,13 @@ class Registry(dict):
         mod = importlib.import_module(module)
         return getattr(getattr(mod, cls), root)
 
-    def find(self, name=None, filename=None, mimetype=None, contents=None):
+    def find(
+        self,
+        name: Optional[str] = None,
+        filename: Optional[str] = None,
+        mimetype: Optional[MimeType] = None,
+        contents: Optional[str] = None
+    ) -> Optional[Lexicon]:
         """Convenience method to find a root lexicon, either by language name,
         or by filename, mimetype and/or contents.
 
@@ -304,21 +366,22 @@ class Registry(dict):
         while self:
             for lexicon in lexicons(self):
                 return lexicon
+            # noinspection PyMethodFirstArgAssignment
             self = self.fallback
 
-    def by_section(self):
+    def by_section(self) -> Dict[str, Dict[str, Entry]]:
         """Return a dictionary mapping section name to a dict with all entries in that section."""
         d = collections.defaultdict(dict)
         for qualname, entry in self.items():
             d[entry.section][qualname] = entry
-        return dict(d)  # return a normal dict
+        return dict(d)  # type: ignore - (return a normal dict)
 
 
 # the global Registry is in the ``registry`` module variable
 registry = Registry()
 
 
-def register(lexicon_name, **kwargs):
+def register(lexicon_name: str, **kwargs: Any) -> None:
     """Register a lexicon in the global registry.
 
     For all the arguments, see :meth:`Registry.add`.
@@ -328,4 +391,5 @@ def register(lexicon_name, **kwargs):
 
 
 ## register the bundled languages
+# noinspection PyUnusedImports
 import parce.lang._registry
