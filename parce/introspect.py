@@ -22,13 +22,14 @@ Helper functions to inspect and document objects.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterator, Any, Generator, Optional, FrozenSet, Union, Tuple, List, Set
+from typing import (
+    TYPE_CHECKING, Iterator, Any, FrozenSet, Union, Tuple, List, Set
+)
 
 from .language import Language
-from .lexicon import LexiconDescriptor, Lexicon
+from .lexicon import LexiconDescriptor
 from .ruleitem import Item, variations_tree
 from .standardaction import StandardAction
-from .target import Target
 
 if TYPE_CHECKING:
     from .lexicon import Lexicon

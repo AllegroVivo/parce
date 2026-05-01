@@ -21,14 +21,20 @@
 This module provides the Language class, which serves as the base class
 for all language definitions.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Iterable, Tuple
 
 import parce
 import parce.action as a
 
+if TYPE_CHECKING:
+    from .standardaction import StandardAction
+
 
 class _LanguageType(type):
     """Language meta type that prints a customized repr string."""
-    def __repr__(cls):
+    def __repr__(cls) -> str:
         return '{}.{}'.format(cls.__module__, cls.__name__)
 
 
@@ -43,7 +49,7 @@ class Language(metaclass=_LanguageType):
         raise RuntimeError('Language should never be instantiated')
 
     @classmethod
-    def comment_common(cls):
+    def comment_common(cls) -> Iterable[Tuple[str, StandardAction]]:
         """Provides subtle highlighting within comments.
 
         The default implementation highlights words like TODO, XXX, TEMP, etc.
@@ -56,5 +62,3 @@ class Language(metaclass=_LanguageType):
         yield r'(?:(?:https?|ftp):/|\bwww\.)(?:[\w_~:/#-]+([.?=][\w_~:/#-]+)*|\([\w._~:?/#-]*\))+', a.Comment.Url
         yield r"\b(ALERT|BUG|FIXME|TEMP|TODO|XXX+)\b", a.Comment.Alert
         yield parce.default_action, a.Comment
-
-

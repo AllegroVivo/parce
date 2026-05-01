@@ -85,7 +85,10 @@ And here's how the same text would translate to a tree structure::
 
 
 """
+from __future__ import annotations
 
+import re
+from typing import TYPE_CHECKING, Iterable, List, Tuple, Any
 
 import collections
 
@@ -93,6 +96,8 @@ from .ruleitem import ActionItem, Item
 from .target import TargetFactory, Target
 from .util import unroll
 
+if TYPE_CHECKING:
+    from .lexicon import Lexicon
 
 Event = collections.namedtuple("Event", "target lexemes")
 Event.target.__doc__ = "A :class:`~.target.Target` or None."
@@ -110,11 +115,11 @@ class Lexer:
     attribute reflects the current state: the current lexicon is at the end.
 
     """
-    def __init__(self, lexicons):
+    def __init__(self, lexicons: Iterable[Lexicon]):
         """Lexicons should be an iterable of one or more lexicons."""
-        self.lexicons = list(lexicons)
+        self.lexicons: List[Lexicon] = list(lexicons)
 
-    def events(self, text, pos=0):
+    def events(self, text: str, pos: int = 0) -> Iterable[Event]:
         """Get the events from parsing text from the specified position."""
         lexicons = self.lexicons
         target_factory = TargetFactory()
@@ -171,7 +176,13 @@ class Lexer:
             else:
                 break   # done
 
-    def filter_actions(self, action, pos, text, match):
+    def filter_actions(
+        self,
+        action: Item,
+        pos: int,
+        text: str,
+        match: re.Match[str]
+    ) -> Iterable[Tuple[int, str, Any]]:
         """Handle filtering via DynamicAction instances."""
         if isinstance(action, Item):
             if isinstance(action, ActionItem):
