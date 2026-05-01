@@ -38,12 +38,16 @@ So in most cases a :func:`select` function will be used with a predicate that
 returns the index of the item to select.
 
 There are also some helper functions that generate output directly, with no
-special behaviour afterwards.
+special behaviour afterward.
 
 The following rule items and helper functions are available:
 
 """
+from __future__ import annotations
 
+from typing import (
+    TYPE_CHECKING, Callable, Any, Union, Tuple, Sequence, Optional
+)
 
 import operator
 import re
@@ -51,6 +55,11 @@ import re
 from . import regex
 from . import ruleitem
 
+if TYPE_CHECKING:
+    from .lexicon import Lexicon
+    from .ruleitem import Item
+    from .transform import ItemList
+    from .target import Target
 
 __all__ = (
     'ARG', 'MATCH', 'TEXT', 'anyof', 'arg', 'bygroup', 'call', 'chars',
@@ -80,12 +89,12 @@ You can use :obj:`TEXT[s]` to get a slice of the matched text.
 
 """
 
-def call(predicate, *arguments):
+def call(predicate: Callable[..., Union[str, int, bool]], *arguments: Any) -> ruleitem.call:
     """Yield the result of calling the predicate with arguments."""
     return ruleitem.call(predicate, *arguments)
 
 
-def select(index, *items):
+def select(index: Union[int, ruleitem.call], *items: Any) -> ruleitem.select:
     r"""Yield the item pointed to by the index.
 
     In most use cases the index will be the result of a predicate function,
@@ -116,7 +125,7 @@ def select(index, *items):
     return ruleitem.select(index, *items)
 
 
-def target(value, *lexicons):
+def target(value: Union[int, Tuple[int, Optional[Any]]], *lexicons: Lexicon) -> ruleitem.target:
     """Yield either an integer target value, or a (possibly derived) Lexicon.
 
     Using this rule item you can have one predicate function decide whether to
@@ -124,7 +133,7 @@ def target(value, *lexicons):
     may also be derived.
 
     This is how it works: when the value is an integer, it is returned.
-    Otherwise the value must be a two-tuple(index, argument). The index then
+    Otherwise, the value must be a two-tuple(index, argument). The index then
     selects one of the provided lexicons and the argument (if not None), calls
     the lexicon to get a derived lexicon, which is then yielded as result of
     this rule item.
@@ -158,7 +167,7 @@ def target(value, *lexicons):
 
 ### Helpers that create rule items
 
-def ifeq(a, b, result, else_result=()):
+def ifeq(a: Item, b: Any, result: Any, else_result: Any = ()) -> ruleitem.select:  # TODO - better typehints than Any - SP
     r"""Yield ``result`` if ``a == b``, else ``else_result``.
 
     This example selects actions and target based on the contents of the
@@ -173,12 +182,17 @@ def ifeq(a, b, result, else_result=()):
     return select(call(operator.eq, a, b), else_result, result)
 
 
-def ifneq(a, b, result, else_result=()):
+def ifneq(a: Any, b: Any, result: Any, else_result: Any = ()) -> ruleitem.select:  # TODO - better typehints than Any - SP
     r"""Yield ``result`` if ``a != b``, else ``else_result``."""
     return select(call(operator.ne, a, b), else_result, result)
 
 
-def ifmember(item, sequence, result, else_result=()):
+def ifmember(  # TODO - better typehints than Any - SP
+    item: Item,
+    sequence: Sequence[Item],
+    result: Any,
+    else_result: Any = ()
+):
     r"""Yield ``result`` if ``item in sequence``, else ``else_result``.
 
     Example::
@@ -194,11 +208,13 @@ def ifmember(item, sequence, result, else_result=()):
     frozen set.
 
     """
-    return select(call(operator.contains, frozenset(sequence), item),
-        else_result, result)
+    return select(
+        call(operator.contains, frozenset(sequence), item),
+        else_result, result
+    )
 
 
-def ifgroup(n, result, else_result=()):
+def ifgroup(n: int, result: Any, else_result: Any = ()) -> ruleitem.select:
     """Yield ``result`` if match group ``n`` is not None.
 
     A regular expression match group is None when the group did not contribute
@@ -216,7 +232,7 @@ def ifgroup(n, result, else_result=()):
     return select(call(operator.ne, MATCH[n], None), else_result, result)
 
 
-def gselect(*results, default=()):
+def gselect(*results: Any, default: Any = ()) -> ruleitem.select:
     """Yield one of the results if that group contributes to the match.
 
     For example::
@@ -252,7 +268,7 @@ def gselect(*results, default=()):
     return select(call(predicate, MATCH), *results, default)
 
 
-def dselect(item, mapping, default=()):
+def dselect(item: Item, mapping: ItemList, default: Any = ()) -> ruleitem.select:
     r"""Yield the ``item`` from the specified ``mapping`` (dictionary).
 
     If the item can't be found in the mapping, returns ``default``.
@@ -279,7 +295,7 @@ def dselect(item, mapping, default=()):
     return select(call(get_index, item), *items)
 
 
-def derive(lexicon, argument):
+def derive(lexicon: Lexicon, argument: Any) -> ruleitem.target:
     r"""Yield a derived lexicon with argument.
 
     Example::
@@ -297,7 +313,11 @@ def derive(lexicon, argument):
     return target((0, argument), lexicon)
 
 
-def findmember(item, pairs, default=()):
+def findmember(
+    item: Item,
+    pairs: ItemList,
+    default: Any = ()
+) -> ruleitem.select:
     r"""Yield the item corresponding to the first sequence the item is found in.
 
     The ``pairs`` argument is an iterable of tuples(sequence, result).
@@ -327,7 +347,7 @@ def findmember(item, pairs, default=()):
 ### Pattern helpers
 
 
-def words(words, prefix="", suffix=""):
+def words(words: Sequence[str], prefix: str = "", suffix: str = "") -> str:
     r"""Return an optimized regular expression pattern matching any of the
     words in the specified sequence.
 
@@ -349,7 +369,7 @@ def words(words, prefix="", suffix=""):
     return expr
 
 
-def chars(chars, positive=True):
+def chars(chars: Sequence[str], positive: bool = True) -> str:
     """Return a regular expression pattern matching one of the characters in
     the specified string or iterable.
 
@@ -370,7 +390,7 @@ def chars(chars, positive=True):
 ### Dynamic patterns (depending on ARG)
 
 
-def pattern(value):
+def pattern(value: Optional[Union[str, ruleitem.call, ruleitem.select]]) -> ruleitem.pattern:
     """Yield the value (string or None), usable as regular expression.
 
     If None, the whole rule is skipped. This rule item may only be used as
@@ -382,7 +402,7 @@ def pattern(value):
     return ruleitem.pattern(value)
 
 
-def arg(escape=True, prefix="", suffix="", default=None):
+def arg(escape: bool = True, prefix: str = "", suffix: str = "", default: Any = None):
     r"""Create a pattern that contains the argument the current Lexicon was
     called with.
 
@@ -396,7 +416,7 @@ def arg(escape=True, prefix="", suffix="", default=None):
     ``suffix`` are not used.
 
     """
-    def build(arg):
+    def build(arg: Union[str, Any]) -> Any:
         """Return the lexicon argument as regular expression."""
         if isinstance(arg, str):
             if escape:
@@ -406,7 +426,7 @@ def arg(escape=True, prefix="", suffix="", default=None):
     return pattern(call(build, ARG))
 
 
-def ifarg(pat, else_pat=None):
+def ifarg(pat: str, else_pat: Optional[str] = None) -> ruleitem.pattern:
     r"""Create a pattern that returns the specified regular expression ``pat``
     if the lexicon was called with an argument.
 
@@ -420,7 +440,7 @@ def ifarg(pat, else_pat=None):
 ### Dynamic actions
 
 
-def bygroup(*actions):
+def bygroup(*actions) -> ruleitem.SubgroupAction:  # TODO - what type is actions? - SP
     r"""Return a :class:`~parce.ruleitem.SubgroupAction` that yields tokens for
     each subgroup in a regular expression.
 
@@ -441,7 +461,7 @@ def bygroup(*actions):
     return ruleitem.SubgroupAction(*actions)
 
 
-def using(lexicon):
+def using(lexicon: Lexicon) -> ruleitem.DelegateAction:
     r"""Return a :class:`~parce.ruleitem.DelegateAction` that yields tokens
     using the specified lexicon.
 
@@ -460,7 +480,7 @@ def using(lexicon):
 ### Helper to yield modified rules
 
 
-def anyof(lexicon, *target):
+def anyof(lexicon: Lexicon, *target: Target):
     """Yield certain rules from the specified ``lexicon``, adding a ``target``.
 
     Rules that specify a target themselves, and rules starting with
@@ -491,8 +511,8 @@ def anyof(lexicon, *target):
     if not target:
         target = lexicon,
     for pattern, action, *t in lexicon:
-        if pattern not in (parce.default_action, parce.default_target) and \
-                not parce.target.TargetFactory.make(lexicon, t):
-            yield (pattern, action, *target)
-
-
+        if (
+            pattern not in (parce.default_action, parce.default_target)
+            and not parce.target.TargetFactory.make(lexicon, t)
+        ):
+            yield pattern, action, *target

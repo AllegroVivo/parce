@@ -3,13 +3,23 @@
     <words>
       <w>allcontexts</w>
       <w>alltokens</w>
+      <w>anyof</w>
       <w>baseformat</w>
+      <w>bygroup</w>
       <w>classmethod</w>
       <w>curlang</w>
       <w>dedents</w>
+      <w>dselect</w>
       <w>endingwith</w>
       <w>exprs</w>
+      <w>findmember</w>
       <w>formatstr</w>
+      <w>gselect</w>
+      <w>ifarg</w>
+      <w>ifeq</w>
+      <w>ifgroup</w>
+      <w>ifmember</w>
+      <w>ifneq</w>
       <w>innergen</w>
       <w>latin</w>
       <w>localfile</w>

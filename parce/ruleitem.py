@@ -156,8 +156,8 @@ class call(Item):
     """Call predicate with arguments."""
     __slots__ = ('_predicate', '_arguments')
 
-    def __init__(self, predicate, *arguments: Any):
-        self._predicate = predicate  # TODO - typehint
+    def __init__(self, predicate: Callable[..., Union[str, int, bool]], *arguments: Any):
+        self._predicate: Callable[..., Union[str, int, bool]] = predicate
         self._arguments: Tuple[Any, ...] = arguments
 
     def evaluate(self, ns: NamespaceDict) -> Any:
@@ -198,8 +198,8 @@ class select(RuleItem):
     """
     __slots__ = ('_index', '_items')
 
-    def __init__(self, index: int, *items: Any):
-        self._index: int = index
+    def __init__(self, index: Union[int, call], *items: Any):
+        self._index: Union[int, call] = index
         self._items: Sequence[Any] = items
 
     def evaluate(self, ns: NamespaceDict) -> Any:
