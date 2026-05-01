@@ -20,15 +20,21 @@
 """
 Helper functions to inspect and document objects.
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Iterator, Any, Generator, Optional, FrozenSet, Union, Tuple, List, Set
 
 from .language import Language
 from .lexicon import LexiconDescriptor, Lexicon
 from .ruleitem import Item, variations_tree
 from .standardaction import StandardAction
+from .target import Target
+
+if TYPE_CHECKING:
+    from .lexicon import Lexicon
 
 
-def decision_tree(lexicon, build=False):
+def decision_tree(lexicon: Lexicon, build: bool = False) -> Iterator[Union[Tuple, FrozenSet]]:
     """Yield all rules of the lexicon, including variations.
 
     Every rule is a tuple. Items are members of the tuple. A variation (choice)
@@ -44,7 +50,7 @@ def decision_tree(lexicon, build=False):
         yield variations_tree(rule)
 
 
-def lexicons(language):
+def lexicons(language: Language) -> List[Lexicon]:
     """Return a list of all the lexicons in the language."""
     names = set()
     for lang in language.mro():
@@ -57,7 +63,7 @@ def lexicons(language):
     return [getattr(language, key) for key in sorted(names)]
 
 
-def rule_items(lang):
+def rule_items(lang: Language) -> Iterator[Any]:
     """Yield all rule items in a language, flattening all RuleItem instances."""
     def flatten(items):
         for i in items:
@@ -72,7 +78,7 @@ def rule_items(lang):
             yield from flatten(rule)
 
 
-def standardactions(lang):
+def standardactions(lang: Language) -> Set[StandardAction]:
     """Return the set of all the StandardAction instances in the language.
 
     Does not follow targets to other languages.
@@ -81,15 +87,15 @@ def standardactions(lang):
     return set(i for i in rule_items(lang) if isinstance(i, StandardAction))
 
 
-def languages(lang):
+def languages(lang: Language) -> Set[Language]:
     """Return the set of all languages that this language refers to.
 
     Does not follow targets from languages that are referred to.
 
     """
-    return set(i.language
+    return set(
+        i.language
         for i in rule_items(lang)
-            if isinstance(i, Lexicon) and i.language is not lang)
-
-
-
+        if isinstance(i, Lexicon)
+        and i.language is not lang
+    )

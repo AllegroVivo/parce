@@ -19,23 +19,38 @@
 
 
 """
-This module contains the implementation of the replacable rule item objects,
+This module contains the implementation of the replaceable rule item objects,
 and some functions to query and manipulate rules that are used by the Lexicon.
 
 Normally, you don't need this module directly; use the :mod:`~parce.rule`
 module for your language definitions.
 
 """
+from __future__ import annotations
 
 import operator
+import re
+from typing import (
+    TYPE_CHECKING, Dict, Any, Tuple, Iterator, Sequence, Callable,
+    TypeVar, Union, FrozenSet, Optional
+)
 
 from . import util
 
+if TYPE_CHECKING:
+    from .lexicon import RuleTuple
+    from .lexer import Lexer
+    from .lexicon import Lexicon
 
 # pre_evaluate flags
 _CHANGED = 0
 _COMPLETE = 1
 _UNCHANGED = 2
+
+T = TypeVar("T")
+
+NamespaceDict = Dict[str, Any]
+GetItemFunc = Callable[[Sequence[T], slice], T]
 
 
 class _EvaluationError(RuntimeError):
@@ -44,7 +59,7 @@ class _EvaluationError(RuntimeError):
 
 
 class Item:
-    """Base class for any replacable rule item.
+    """Base class for any replaceable rule item.
 
     An Item is considered to be immutable; you should never alter the
     attributes after instantiation. When an Item can be partly pre-evaluated a
@@ -59,15 +74,15 @@ class Item:
     __slots__ = ()
     _getitem_func = operator.getitem
 
-    def __getitem__(self, n):
+    def __getitem__(self, n: int):
         """Return a new Item that performs item[n]. n is evaluated as well."""
         return call(self._getitem_func, self, n)
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Evaluate item in namespace dict ``ns``."""
         raise NotImplementedError
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Try to evaluate item in namespace dict ``ns``.
 
         Return a two-tuple(obj, success).
@@ -90,7 +105,7 @@ class Item:
         except _EvaluationError:
             return self, _UNCHANGED
 
-    def variations(self):
+    def variations(self) -> Iterator[Tuple[Any, ...]]:
         """Yield the possible results for this item.
 
         This is used to build a decision tree for a rule, to see which actions
@@ -102,12 +117,13 @@ class Item:
         """
         raise RuntimeError("Item '{}' can't be used directly in a rule".format(repr(self)))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "{}({})".format(
             self.__class__.__name__,
-            ', '.join(map(repr, self._repr_args())))
+            ', '.join(map(repr, self._repr_args()))
+        )
 
-    def _repr_args(self):
+    def _repr_args(self) -> Tuple[Any, ...]:
         return ()
 
 
@@ -120,35 +136,37 @@ class VariableItem(Item):
 
     """
     __slots__ = ('_name', '_getitem_func')
-    def __init__(self, name, getitem_func=operator.getitem):
-        self._name = name
-        self._getitem_func = getitem_func
 
-    def evaluate(self, ns):
+    def __init__(self, name: str, getitem_func: GetItemFunc = operator.getitem):
+        self._name: str = name
+        self._getitem_func: GetItemFunc = getitem_func
+
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Get the variable from the namespace dict."""
         try:
             return ns[self._name]
         except KeyError as e:
             raise _EvaluationError("Can't find variable '{}'".format(self._name)) from e
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self._name.upper()
 
 
 class call(Item):
     """Call predicate with arguments."""
     __slots__ = ('_predicate', '_arguments')
-    def __init__(self, predicate, *arguments):
-        self._predicate = predicate
-        self._arguments = arguments
 
-    def evaluate(self, ns):
+    def __init__(self, predicate, *arguments: Any):
+        self._predicate = predicate  # TODO - typehint
+        self._arguments: Tuple[Any, ...] = arguments
+
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Call predicate with the arguments."""
         predicate = evaluate(self._predicate, ns)
         arguments = evaluate(self._arguments, ns)
         return predicate(*arguments)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         predicate, pred_ok = pre_evaluate(self._predicate, ns)
         arguments, arg_ok  = pre_evaluate(self._arguments, ns)
@@ -159,8 +177,8 @@ class call(Item):
             return self, _UNCHANGED
         return type(self)(predicate, *arguments), _CHANGED
 
-    def _repr_args(self):
-        return (self._predicate, *self._arguments)
+    def _repr_args(self) -> Tuple[Any, ...]:
+        return self._predicate, *self._arguments
 
 
 class RuleItem(Item):
@@ -180,17 +198,17 @@ class select(RuleItem):
     """
     __slots__ = ('_index', '_items')
 
-    def __init__(self, index, *items):
-        self._index = index
-        self._items = items
+    def __init__(self, index: int, *items: Any):
+        self._index: int = index
+        self._items: Sequence[Any] = items
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Return items[index]."""
         index = evaluate(self._index, ns)
         item = evaluate(self._items[index], ns)
         return item
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         index, ok = pre_evaluate(self._index, ns)
         if ok & _COMPLETE:
@@ -202,12 +220,12 @@ class select(RuleItem):
             return self, _UNCHANGED
         return type(self)(index, *items), _CHANGED
 
-    def variations(self):
+    def variations(self) -> Iterator[Any]:
         """Yield all the items that could be chosen (unevaluated)."""
         yield from self._items
 
-    def _repr_args(self):
-        return (self._index, *self._items)
+    def _repr_args(self) -> Tuple[Any, ...]:
+        return self._index, *self._items
 
 
 class target(RuleItem):
@@ -222,11 +240,11 @@ class target(RuleItem):
     """
     __slots__ = ('_value', '_lexicons')
 
-    def __init__(self, value, *lexicons):
-        self._value = value
+    def __init__(self, value: Any, *lexicons: Lexicon):
+        self._value: Any = value
         self._lexicons = lexicons
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Return value if integer, otherwise lexicons[value[0]](value[1])."""
         value = evaluate(self._value, ns)
         if isinstance(value, int):
@@ -235,7 +253,7 @@ class target(RuleItem):
         lexicon = evaluate(self._lexicons[index], ns)
         return lexicon if arg is None else lexicon(arg)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         value, ok = pre_evaluate(self._value, ns)
         if ok & _COMPLETE:
@@ -244,7 +262,7 @@ class target(RuleItem):
             index, arg = value
             lexicon, ok = pre_evaluate(self._lexicons[index], ns)
             if ok & _COMPLETE:
-                return (lexicon if arg is None else lexicon(arg), _COMPLETE)
+                return lexicon if arg is None else lexicon(arg), _COMPLETE
             return type(self)((0, arg), lexicon), _CHANGED
         # pre-evaluate the lexicons
         lexicons, l_ok = pre_evaluate(self._lexicons, ns)
@@ -253,7 +271,7 @@ class target(RuleItem):
             return self, ok
         return type(self)(value, *lexicons), ok
 
-    def variations(self):
+    def variations(self) -> Iterator[Union[int, Lexicon, util.Symbol]]:
         """Yield our possible variations.
 
         If the value is evaluated, yield either the value or the chosen
@@ -270,8 +288,8 @@ class target(RuleItem):
             index, arg = value
             yield self._lexicons[index]
 
-    def _repr_args(self):
-        return (self._value, *self._lexicons)
+    def _repr_args(self) -> Tuple[Any, ...]:
+        return self._value, *self._lexicons
 
 
 class PostponedItem(RuleItem):
@@ -286,28 +304,30 @@ class PostponedItem(RuleItem):
     """
     __slots__ = ()
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: NamespaceDict) -> Any:
         """Evaluate all values returned by the evaluate_items() method.
 
         If any value changes, a copy of the Item is returned, otherwise the
-        Item ifself. If the evaluate_items() method does not yield any value,
+        Item itself. If the evaluate_items() method does not yield any value,
         this Item is always returned unchanged.
 
         """
         items, ok = pre_evaluate(self.evaluate_items(), ns)
+        # noinspection PyArgumentList
         return self if ok & _UNCHANGED else type(self)(*items)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Pre-evaluate all values returned by the evaluate_items() method.
 
         If any value changes, a copy of the Item is returned, otherwise the
-        Item ifself.
+        Item itself.
 
         """
         items, ok = pre_evaluate(self.evaluate_items(), ns)
+        # noinspection PyArgumentList
         return self if ok & _UNCHANGED else type(self)(*items), ok
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> Tuple[Any, ...]:
         """Return a tuple of the values as given to the __init__ method,
         when they need to be evaluated inside this PostponedItem.
 
@@ -328,18 +348,18 @@ class pattern(PostponedItem):
     __slots__ = ('_value',)
 
     def __init__(self, value):
-        self._value = value
+        self._value: Any = value
 
     @property
-    def value(self):
+    def value(self) -> Any:
         """Get the pattern value."""
         return self._value
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> Tuple[Any]:
         """Yield the pattern value."""
         return self._value,
 
-    def variations(self):
+    def variations(self) -> Iterator[Optional[Union[Tuple[Any, ...], Any]]]:
         """If the value is evaluated, yield it, otherwise yields ``None`` and ``a_string``."""
         if isinstance(self._value, Item):
             yield None
@@ -375,21 +395,28 @@ class SubgroupAction(ActionItem):
 
     """
     __slots__ = ('_actions',)
-    def __init__(self, *actions):
-        self._actions = actions
 
-    def replace(self, lexer, pos, text, match):
+    def __init__(self, *actions: ActionItem):
+        self._actions: Tuple[ActionItem, ...] = actions
+
+    def replace(
+        self,
+        lexer: Lexer,
+        _: int,
+        __: str,
+        match: re.Match[str]
+    ):
         for i, action in enumerate(self._actions, match.lastindex + 1):
             yield from lexer.filter_actions(action, match.start(i), match.group(i), match)
 
-    def variations(self):
+    def variations(self) -> Iterator[ActionItem]:
         """Yield the possible actions."""
         yield from self._actions
 
-    def _repr_args(self):
+    def _repr_args(self) -> Tuple[ActionItem, ...]:
         return self._actions
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: NamespaceDict) -> Tuple[Any, int]:
         """Reimplemented to only pre-evaluate subgroup actions (evaluating happens in the lexer)."""
         items, ok = pre_evaluate(self._actions, ns)
         return self if ok & _UNCHANGED else type(self)(*items), ok
@@ -409,25 +436,31 @@ class DelegateAction(ActionItem):
     """
     __slots__ = ('_lexicon',)
 
-    def __init__(self, lexicon):
-        self._lexicon = lexicon
+    def __init__(self, lexicon: Lexicon):
+        self._lexicon: Lexicon = lexicon
 
-    def replace(self, lexer, pos, text, match):
+    def replace(
+        self,
+        lexer: Lexer,
+        pos: int,
+        text: str,
+        _: re.Match[str]
+    ):
         """Use our lexicon to parse the matched text."""
         sublexer = type(lexer)([self._lexicon])
         for e in sublexer.events(text):
             for p, txt, action in e.lexemes:
                 yield pos + p, txt, action
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> Tuple[Lexicon]:
         """Return the lexicon specified on init, used by evaluate() and pre_evaluate()."""
         return self._lexicon,
 
-    def variations(self):
+    def variations(self) -> Iterator[Lexicon]:
         """Yield our lexicon."""
         yield self._lexicon
 
-    def _repr_args(self):
+    def _repr_args(self) -> Tuple[Lexicon]:
         return self._lexicon,
 
 
@@ -438,16 +471,25 @@ class SkipAction(ActionItem):
     to silently ignore the matched text.
 
     """
-    def replace(self, lexer, pos, text, match):
+
+    # noinspection PyMethodMayBeStatic,PyUnusedLocal
+    def replace(
+        self,
+        lexer: Lexer,
+        pos: int,
+        text: str,
+        match: re.Match[str]
+    ):
         yield from ()
 
+    # noinspection PyUnreachableCode
     def variations(self):
         """Yield no variations."""
         return
         yield
 
 
-def evaluate(obj, ns):
+def evaluate(obj: Any, ns: NamespaceDict) -> Any:
     """Evaluate an object, that may or may not be an Item.
 
     The namespace `ns` is a dictionary containing text, match and/or arg
@@ -462,14 +504,14 @@ def evaluate(obj, ns):
     return obj
 
 
-def evaluate_rule(rule, match):
+def evaluate_rule(rule: RuleTuple, match: re.Match[str]) -> Any:
     """Evaluate all RuleItem objects in the rule.
 
     The specified match object provides the value for the TEXT and MATCH
     variables. Lists and tuples are unrolled.
 
     """
-    ns = {'text': match.group(), 'match': match}
+    ns: NamespaceDict = {'text': match.group(), 'match': match}
     def eval_rule_items(objs):
         for obj in objs:
             if isinstance(obj, RuleItem):
@@ -481,7 +523,7 @@ def evaluate_rule(rule, match):
     yield from eval_rule_items(rule)
 
 
-def pre_evaluate(obj, ns):
+def pre_evaluate(obj: Any, ns: NamespaceDict) -> Tuple[Any, int]:
     """Pre-evaluate any object, that may or may not be an Item.
 
     Returns a two-tuple(result, success). The namespace `ns` is a dictionary
@@ -509,7 +551,7 @@ def pre_evaluate(obj, ns):
     return obj, 3
 
 
-def pre_evaluate_rule(rule, arg):
+def pre_evaluate_rule(rule: Sequence[T], arg: Any) -> Tuple[Any, ...]:
     """Evaluate all RuleItem objects that can be evaluated in the rule.
 
     The specified ``arg`` provides the value for the ARG variable. Rule items
@@ -518,7 +560,7 @@ def pre_evaluate_rule(rule, arg):
 
     """
     ns = {'arg': arg}
-    def pre_eval_rule_items(objs):
+    def pre_eval_rule_items(objs: Sequence[Any]) -> Iterator[Any]:
         for obj in objs:
             if isinstance(obj, RuleItem):
                 yield from util.unroll(obj.pre_evaluate(ns)[0])
@@ -535,19 +577,21 @@ def pre_evaluate_rule(rule, arg):
     return ()
 
 
-def needs_evaluation(rule):
+def needs_evaluation(rule: Sequence[T]) -> bool:
     """Return True if there are items in the rule that need evaluating."""
     for item in rule:
         if isinstance(item, PostponedItem):
             if needs_evaluation(item.evaluate_items()):
                 return True
-        elif isinstance(item, RuleItem) or \
-             (type(item) in (tuple, list) and needs_evaluation(item)):
+        elif (
+            isinstance(item, RuleItem)
+            or (type(item) in (tuple, list) and needs_evaluation(item))
+        ):
             return True
     return False
 
 
-def variations_tree(rule):
+def variations_tree(rule: Sequence[T]) -> Tuple[Union[T, FrozenSet[T]], ...]:
     """Return a tuple with the tree structure of all possible variations.
 
     Branches (choices) are indicated by a frozenset, which contains
@@ -557,15 +601,15 @@ def variations_tree(rule):
     items = tuple(rule)
     for i, item in enumerate(items):
         if isinstance(item, Item):
-            branch = [variations_tree(util.unroll(v)) for v in item.variations()]
+            branch = [variations_tree(util.unroll(v)) for v in item.variations()]  # type: ignore - SP
             if branch:
                 branch = branch[0] if len(branch) == 1 else frozenset(branch)
-                return (*items[:i], branch, *variations_tree(items[i+1:]))
+                return *items[:i], branch, *variations_tree(items[i + 1:])
     else:
         return items
 
 
-def variations(rule):
+def variations(rule: Sequence[T]) -> Iterator[Tuple[T, ...]]:
     """Yield all possible variations of the rule."""
     items = tuple(rule)
     for i, item in enumerate(items):
@@ -573,7 +617,7 @@ def variations(rule):
             prefix = items[:i]
             for suffix in variations(items[i+1:]):
                 for v in item.variations():
-                    for l in variations(util.unroll(v)):
+                    for l in variations(util.unroll(v)):  # type: ignore - SP
                         yield prefix + l + suffix
             break
     else:
@@ -585,4 +629,3 @@ a_number = util.Symbol("a_number")
 
 #: sentinel denoting that a variation is any string
 a_string = util.Symbol("a_string")
-
