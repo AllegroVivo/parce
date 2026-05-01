@@ -228,7 +228,7 @@ class Node:
                 return True
         return False
 
-    def ancestors(self, upto: Optional[Node] = None) -> Iterable[Context]:
+    def ancestors(self, upto: Optional[Node] = None) -> Iterator[Context]:
         """Climb the tree up over the parents.
 
         If upto is given, and it is one of the ancestors, stop after yielding

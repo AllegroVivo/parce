@@ -45,3 +45,4 @@ Encoding = Union[_CommonEncodings, str]
 MimeType = Union[_CommonMimeTypes, str]
 
 Lexeme = Tuple[int, str, StandardAction]
+IntOrSlice = Union[int, slice]

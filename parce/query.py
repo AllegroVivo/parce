@@ -195,7 +195,11 @@ selected when the action exactly matches, or is a descendant of the given
 action.
 
 """
+from __future__ import annotations
 
+from typing import (
+    TYPE_CHECKING, Callable, Any, Iterator, Sequence, Optional, Tuple
+)
 
 import collections
 import functools
@@ -203,18 +207,23 @@ import itertools
 import re
 import sys
 
-from .lexicon import Lexicon
+if TYPE_CHECKING:
+    from .tree import TokenOrContext, DumpStyle, Token, Context
+    from _typeshed import SupportsWrite
+    from .typeinfo import IntOrSlice
+    from .standardaction import StandardAction
 
+GeneratorFunc = Callable[[], Iterator["TokenOrContext"]]
 
-def query(func):
+def query(func: Callable) -> Callable[..., Query]:
     """Make a method result (generator) into a new Query object."""
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self, *args: Any, **kwargs: Any):
         return Query(lambda: func(self, *args, **kwargs))
     return wrapper
 
 
-def pquery(func):
+def pquery(func: Callable) -> property:
     """Make a method result into a Query object, and the method a property."""
     return property(query(func))
 
@@ -230,36 +239,40 @@ class Query:
     """
     __slots__ = '_gen', '_inv'
 
-    def __init__(self, gen, invert=False):
-        self._gen = gen
-        self._inv = invert
+    def __init__(self, gen: GeneratorFunc, invert: bool = False):
+        self._gen: GeneratorFunc = gen
+        self._inv: bool = invert
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[TokenOrContext]:
         return self._gen()
 
     @classmethod
-    def from_nodes(cls, nodes):
+    def from_nodes(cls, nodes: Sequence[TokenOrContext]):
         """Create a Query object querying a list of nodes in one go."""
         return cls(lambda: iter(nodes))
 
     # end points
-    def __bool__(self):
+    def __bool__(self) -> bool:
         """Return True if there is at least one result."""
-        for n in self:
+        for _ in self:
             return True
         return False
 
-    @property
-    def ls(self):
+    # @property - Properties typically return something, converted to a function - SP
+    def ls(self) -> None:
         """List current selection of this Query, for debugging purposes."""
         for i, n in enumerate(self):
             print("[{}] {}".format(i, repr(n)))
 
-    def count(self):
+    def count(self) -> int:
         """Compute the length of the iterable."""
         return sum(1 for _ in self)
 
-    def dump(self, file=None, style=None):
+    def dump(
+        self,
+        file: Optional[SupportsWrite[str]] = None,
+        style: Optional[DumpStyle] = None
+    ) -> None:
         """Dump all selected nodes to the console (or to file).
 
         .. seealso:: :meth:`.tree.Node.dump`
@@ -268,19 +281,19 @@ class Query:
         for n in self:
             n.dump(file, style)
 
-    def pick(self, default=None):
+    def pick(self, default: Optional[TokenOrContext] = None) -> Optional[TokenOrContext]:
         """Pick the first value, or return the default."""
         for n in self:
             return n
         return default
 
-    def pick_last(self, default=None):
+    def pick_last(self, default: Optional[TokenOrContext] = None) -> Optional[TokenOrContext]:
         """Pick the last value, or return the default."""
         for default in self:
             pass
         return default
 
-    def range(self):
+    def range(self) -> Tuple[int, int]:
         """Return the text range as a tuple (pos, end).
 
         The ``pos`` is the lowest pos of the nodes in the current set, and
@@ -298,7 +311,7 @@ class Query:
                 end = max(end, n.end)
         return pos, end
 
-    def delete(self):
+    def delete(self) -> int:
         """Delete all selected nodes from their parents.
 
         Internally calls ``uniq`` and ``remove_descendants``, so that no
@@ -325,9 +338,12 @@ class Query:
             del d[None]
         # if a parent looses all children, remove itself too
         while True:
-            remove = [parent
+            remove = [
+                parent
                 for parent, nodes in d.items()
-                    if len(nodes) == len(parent) and parent.parent is not None]
+                if len(nodes) == len(parent)
+                and parent.parent is not None
+            ]
             if not remove:
                 break
             for n in remove:
@@ -354,43 +370,47 @@ class Query:
 
     # navigators
     @query
-    def __getitem__(self, key):
+    def __getitem__(self, key: IntOrSlice) -> Iterator[TokenOrContext]:
         """Get the specified item or items of every context node.
 
         Note that the result nodes always form a flat iterable. No IndexError
         will be raised if an index would be out of range for any node.
 
         """
-        # slicing or itemgetting with integers are not invertible selectors
+        # slicing or item-getting with integers are not invertible selectors
+        from .tree import Context
         if isinstance(key, slice):
             for n in self:
-                if n.is_context:
+                if isinstance(n, Context):
                     yield from n[key]
         else:
             for n in self:
-                if n.is_context:
+                if isinstance(n, Context):
                     k = key + len(n) if key < 0 else key
                     if 0 <= k < len(n):
                         yield n[k]
 
     @pquery
-    def children(self):
+    def children(self) -> Iterator[TokenOrContext]:
         """All direct children of the current nodes."""
+        from .tree import Context
         for n in self:
-            if n.is_context:
+            if isinstance(n, Context):
                 yield from n
 
     @pquery
     def all(self):
         """All descendants, contexts and their nodes."""
+        from .tree import Context
         def innergen(n):
             stack = []
             j = 0
             while True:
+                assert n is not None
                 for i in range(j, len(n)):
                     m = n[i]
                     yield m
-                    if m.is_context:
+                    if isinstance(m, Context):
                         stack.append(i)
                         j = 0
                         n = m
@@ -401,30 +421,34 @@ class Query:
                         j = stack.pop() + 1
                     else:
                         break
+
         for n in self:
             yield n
-            if n.is_context:
+            if isinstance(n, Context):
                 yield from innergen(n)
 
     @pquery
-    def alltokens(self):
+    def alltokens(self) -> Iterator[Token]:
         """Shortcut for all.tokens."""
+        from .tree import Token
         for n in self:
-            if n.is_token:
+            if isinstance(n, Token):
                 yield n
             else:
                 yield from n.tokens()
 
     @pquery
-    def allcontexts(self):
+    def allcontexts(self) -> Iterator[Context]:
         """Shortcut for all.contexts."""
+        from .tree import Context
         def innergen(n):
             stack = []
             j = 0
             while True:
+                assert n is not None  # for type checker - SP
                 for i in range(j, len(n)):
                     m = n[i]
-                    if m.is_context:
+                    if isinstance(m, Context):
                         yield m
                         stack.append(i)
                         j = 0
@@ -437,12 +461,12 @@ class Query:
                     else:
                         break
         for n in self:
-            if n.is_context:
+            if isinstance(n, Context):
                 yield n
                 yield from innergen(n)
 
     @pquery
-    def parent(self):
+    def parent(self) -> Iterator[Context]:
         """Yield the parent of every node.
 
         This can lead to many double occurrences of the same node in the
@@ -451,30 +475,32 @@ class Query:
         """
         for n in self:
             if n.parent:
-                yield n.parent
+                yield n.parent  # type: ignore - parent nodes are always a Context - SP
 
     @pquery
-    def ancestors(self):
+    def ancestors(self) -> Iterator[Context]:
         """Yield the ancestor contexts of every node."""
         for n in self:
             yield from n.ancestors()
 
     @pquery
-    def first(self):
+    def first(self) -> Iterator[TokenOrContext]:
         """Yield the first node of every context node, same as [0]."""
+        from .tree import Context
         for n in self:
-            if n and n.is_context:
+            if n and isinstance(n, Context):
                 yield n[0]
 
     @pquery
-    def last(self):
+    def last(self) -> Iterator[TokenOrContext]:
         """Yield the last node of every context node, same as [-1]."""
+        from .tree import Context
         for n in self:
-            if n and n.is_context:
+            if n and isinstance(n, Context):
                 yield n[-1]
 
     @pquery
-    def next(self):
+    def next(self) -> Iterator[Token]:
         """Yield the next token, if any."""
         for n in self:
             t = n.next_token()
@@ -482,7 +508,7 @@ class Query:
                 yield t
 
     @pquery
-    def previous(self):
+    def previous(self) -> Iterator[Token]:
         """Yield the previous token, if any."""
         for n in self:
             t = n.previous_token()
@@ -490,19 +516,19 @@ class Query:
                 yield t
 
     @pquery
-    def forward(self):
+    def forward(self) -> Iterator[Token]:
         """Yield Tokens in forward direction."""
         for n in self:
             yield from n.forward()
 
     @pquery
-    def backward(self):
+    def backward(self) -> Iterator[Token]:
         """Yield Tokens in backward direction."""
         for n in self:
             yield from n.backward()
 
     @pquery
-    def right(self):
+    def right(self) -> Iterator[TokenOrContext]:
         """Yield the right sibling, if any."""
         for n in self:
             n = n.right_sibling()
@@ -510,7 +536,7 @@ class Query:
                 yield n
 
     @pquery
-    def left(self):
+    def left(self) -> Iterator[TokenOrContext]:
         """Yield the left sibling, if any."""
         for n in self:
             n = n.left_sibling()
@@ -518,47 +544,49 @@ class Query:
                 yield n
 
     @pquery
-    def right_siblings(self):
+    def right_siblings(self) -> Iterator[TokenOrContext]:
         """Yield the right siblings, if any."""
         for n in self:
             yield from n.right_siblings()
 
     @pquery
-    def left_siblings(self):
+    def left_siblings(self) -> Iterator[TokenOrContext]:
         """Yield the left siblings, if any."""
         for n in self:
             yield from n.left_siblings()
 
     @query
-    def map(self, function):
+    def map(self, function: Callable[[TokenOrContext], Iterator[TokenOrContext]]) -> Iterator[TokenOrContext]:
         """Call the function on every node and yield its results, which should be zero or more nodes as well."""
         for n in self:
             yield from function(n)
 
     # selectors
     @query
-    def filter(self, predicate):
+    def filter(self, predicate: Callable[[TokenOrContext], bool]) -> Iterator[TokenOrContext]:
         """Yield nodes for which the predicate returns a value that evaluates to True."""
         for n in self:
             if predicate(n):
                 yield n
 
     @pquery
-    def tokens(self):
+    def tokens(self) -> Iterator[Token]:
         """Get only the tokens."""
+        from .tree import Token
         for n in self:
-            if n.is_token:
+            if isinstance(n, Token):
                 yield n
 
     @pquery
-    def contexts(self):
+    def contexts(self) -> Iterator[Context]:
         """Get only the contexts."""
+        from .tree import Context
         for n in self:
-            if n.is_context:
+            if isinstance(n, Context):
                 yield n
 
     @pquery
-    def uniq(self):
+    def uniq(self) -> Iterator[TokenOrContext]:
         """Remove double occurrences of the same node from the result set.
 
         This can happen e.g. when you find the parent of multiple nodes.
@@ -572,7 +600,7 @@ class Query:
                 yield n
 
     @query
-    def slice(self, *args):
+    def slice(self, *args: int) -> Iterator[TokenOrContext]:
         """Slice the full result set, using :py:func:`itertools.islice`.
 
         This can help narrowing down the result set. For example::
@@ -589,7 +617,7 @@ class Query:
         yield from itertools.islice(self, *args)
 
     @pquery
-    def remove_descendants(self):
+    def remove_descendants(self) -> Iterator[TokenOrContext]:
         """Remove nodes that have ancestors in the current node list."""
         ids = set(map(id, self))
         for n in self:
@@ -597,7 +625,7 @@ class Query:
                 yield n
 
     @pquery
-    def remove_ancestors(self):
+    def remove_ancestors(self) -> Iterator[TokenOrContext]:
         """Remove nodes that have descendants in the current node list."""
         ids = set(map(id, self)) & set(map(id, (p for n in self for p in n.ancestors())))
         for n in self:
@@ -605,25 +633,26 @@ class Query:
                 yield n
 
     @property
-    def is_not(self):
+    def is_not(self) -> Query:
         """Invert the next query."""
         return type(self)(self._gen, not self._inv)
 
     # invertible selectors
     @query
-    def len(self, min_length, max_length=None):
+    def len(self, min_length: int, max_length: Optional[int] = None) -> Iterator[TokenOrContext]:
         """Only yield contexts, with min_length, or with length between min and max."""
+        from .tree import Context
         if max_length is None:
             for n in self:
-                if n.is_context and self._inv ^ (len(n) == min_length):
+                if isinstance(n, Context) and self._inv ^ (len(n) == min_length):
                     yield n
         else:
             for n in self:
-                if n.is_context and self._inv ^ (min_length <= len(n) <= max_length):
+                if isinstance(n, Context) and self._inv ^ (min_length <= len(n) <= max_length):
                     yield n
 
     @query
-    def in_range(self, start=0, end=None):
+    def in_range(self, start: int = 0, end: Optional[int] = None) -> Iterator[TokenOrContext]:
         """Yield a restricted set, tokens and/or contexts must fall in start→end"""
         if end is None:
             end = sys.maxsize
@@ -638,7 +667,7 @@ class Query:
                     yield n
 
     @query
-    def __call__(self, *what):
+    def __call__(self, *what: Sequence[TokenOrContext]) -> Iterator[TokenOrContext]:
         """Yield token if token has that text, or context if context has that lexicon.
 
         You can even mix the types if you'd need to::
@@ -650,55 +679,61 @@ class Query:
         Lang.comment lexicon.
 
         """
+        from .tree import Token
         for n in self:
-            if self._inv ^ ((n.text if n.is_token else n.lexicon) in what):
+            if self._inv ^ ((n.text if isinstance(n, Token) else n.lexicon) in what):
                 yield n
 
     @query
-    def startingwith(self, text):
+    def startingwith(self, text: str) -> Iterator[Token]:
         """Yield tokens that start with text."""
+        from .tree import Token
         for t in self:
-            if t.is_token and self._inv ^ t.text.startswith(text):
+            if isinstance(t, Token) and self._inv ^ t.text.startswith(text):
                 yield t
 
     @query
-    def endingwith(self, text):
+    def endingwith(self, text: str) -> Iterator[Token]:
         """Yield tokens that end with text."""
+        from .tree import Token
         for t in self:
-            if t.is_token and self._inv ^ t.text.endswith(text):
+            if isinstance(t, Token) and self._inv ^ t.text.endswith(text):
                 yield t
 
     @query
-    def containing(self, text):
+    def containing(self, text: str) -> Iterator[Token]:
         """Yield tokens that contain the specified text."""
+        from .tree import Token
         for t in self:
-            if t.is_token and self._inv ^ (text in t.text):
+            if isinstance(t, Token) and self._inv ^ (text in t.text):
                 yield t
 
     @query
-    def matching(self, pattern, flags=0):
+    def matching(self, pattern: re.Pattern[str], flags: re.RegexFlag = re.RegexFlag.NOFLAG) -> Iterator[Token]:
         """Yield tokens matching the regular expression.
 
         :func:`re.search` is used, so the expression can match anywhere
         unless you use ^ or $ characters).
 
         """
+        from .tree import Token
         search = re.compile(pattern, flags).search
         for t in self:
-            if t.is_token and self._inv ^ bool(search(t.text)):
+            if isinstance(t, Token) and self._inv ^ bool(search(t.text)):
                 yield t
 
     @query
-    def action(self, *actions):
+    def action(self, *actions: StandardAction) -> Iterator[Token]:
         """Yield those tokens whose action *is* one of the given actions."""
+        from .tree import Token
         for t in self:
-            if t.is_token and self._inv ^ (t.action in actions):
+            if isinstance(t, Token) and self._inv ^ (t.action in actions):
                 yield t
 
     @query
-    def in_action(self, *actions):
+    def in_action(self, *actions: StandardAction) -> Iterator[Token]:
         """Yield those tokens whose action *is or inherits from* one of the given actions."""
+        from .tree import Token
         for t in self:
-            if t.is_token and self._inv ^ any(t.action in a for a in actions):
+            if isinstance(t, Token) and self._inv ^ any(t.action in a for a in actions):
                 yield t
-

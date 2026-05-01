@@ -29,8 +29,6 @@ from other applications.
 import collections
 Version = collections.namedtuple("Version", "major minor patch")
 
-
-
 #: name of the package
 name = "parce"
 
