@@ -50,7 +50,7 @@ types, a concept borrowed from pygments. An example::
     Literal.String.SingleQuotedString
 
 StandardAction instances support iteration and membership methods.
-Iteration yields the instance ifself and then the parents::
+Iteration yields the instance itself and then the parents::
 
     >>> for i in String.DoubleQuoted:
     ...     print(i)
@@ -90,20 +90,28 @@ See for the full list of pre-defined standard actions :doc:`stdactions`.
 
 
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Dict, Optional, Iterator, Union, Iterable, Self
 
-import threading
+from threading import Lock
+
+if TYPE_CHECKING:
+    pass
 
 # we use a global lock for standardaction creation, it seems overkill
 # to me to equip every instance with one.
-_lock = threading.Lock()
+_lock: Lock = Lock()
 
-_toplevel_actions = {}       # store the "root" actions
+_toplevel_actions: Dict[str, "StandardAction"] = {}     # store the "root" actions
 
 
 class StandardAction:
     """Factory for standard action singletons."""
-    def __new__(cls, name, parent=None):
+    _name: str
+    _parent: Optional[StandardAction]
+
+    def __new__(cls, name: str, parent: Optional[StandardAction] = None) -> StandardAction:
         d = parent.__dict__ if parent else _toplevel_actions
         with _lock:
             try:
@@ -114,34 +122,33 @@ class StandardAction:
                 new._parent = parent
                 return new
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> StandardAction:
         if name.startswith('_'):
             raise AttributeError("{} has no attribute {}".format(self, repr(name)))
         return type(self)(name, self)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return ".".join(reversed([n._name for n in self]))
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[StandardAction]:
         node = self
         while node:
             yield node
             node = node._parent
 
-    def __contains__(self, other):
+    def __contains__(self, other: Union[str, StandardAction]) -> bool:
         if isinstance(other, str):
             return any(t._name == other for t in self)
         return any(t is self for t in other)
 
-    def __and__(self, other):
-        ancestors = frozenset(other)
+    def __and__(self, other: Union[str, StandardAction, Iterable[StandardAction]]) -> Optional[StandardAction]:
+        ancestors = frozenset(other)  # type: ignore - SP
         for t in self:
             if t in ancestors:
                 return t
 
-    def __copy__(self):
+    def __copy__(self) -> Self:
         return self
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, _) -> Self:
         return self
-
