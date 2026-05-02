@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Tuple, Literal, Union
+from typing import TYPE_CHECKING, Tuple, Literal, Union, Optional
 
 if TYPE_CHECKING:
     from .standardaction import StandardAction
+    from .lexicon import Lexicon
 
 
 # Literal collections
@@ -51,3 +52,6 @@ MimeType = Union[_CommonMimeTypes, str]
 
 Lexeme = Tuple[int, str, StandardAction]
 IntOrSlice = Union[int, slice]
+
+RootLexicon = Optional[Lexicon]
+RootLexiconOrFalse = Union[RootLexicon, Literal[False]]

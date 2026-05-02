@@ -40,12 +40,25 @@ Inherit of Worker to implement other features or another way to use a
 background thread for (parts of) the job.
 
 """
+from __future__ import annotations
 
-import threading
+from typing import (
+    TYPE_CHECKING, Optional, Iterator, Callable, Union, Literal, Tuple, Any,
+
+)
+
+from threading import Condition, Lock, Thread
 import weakref
 
-from . import util
+from .util import Observable
 
+if TYPE_CHECKING:
+    from .treebuilder import TreeBuilder
+    from .transform import Transformer
+    from .typeinfo import RootLexiconOrFalse, RootLexicon
+    from .tree import Context, Token
+    from .lexicon import Lexicon
+    from . import DocumentInterface
 
 IDLE      = 0       # result is up-to-date
 BUILD     = 1       # result is still valid but not up-to-date
@@ -60,7 +73,7 @@ _STATES = {
 }
 
 
-class Worker(util.Observable):
+class Worker(Observable):
     """Runs the TreeBuilder and the Transformer.
 
     Initialize with a :class:`~.treebuilder.TreeBuilder` and optionally a
@@ -90,24 +103,24 @@ class Worker(util.Observable):
         without arguments.
 
     """
-    def __init__(self, treebuilder, transformer=None):
+    def __init__(self, treebuilder: TreeBuilder, transformer: Optional[Transformer] = None):
         super().__init__()
-        self._builder = treebuilder
-        self._transformer = transformer
+        self._builder: TreeBuilder = treebuilder
+        self._transformer: Optional[Transformer] = transformer
 
-        self._condition = threading.Condition()
-        self._transform_lock = threading.Lock() # prevent setting Transformer without noticing
-        self._tree_state = IDLE
-        self._transform_state = IDLE
+        self._condition: Condition = Condition()
+        self._transform_lock: Lock = Lock()  # prevent setting Transformer without noticing
+        self._tree_state: int = IDLE
+        self._transform_state: int = IDLE
 
         treebuilder.connect("invalidate", self.slot_invalidate)
         treebuilder.connect("replace", self.slot_replace)
 
-    def builder(self):
+    def builder(self) -> TreeBuilder:
         """Return the TreeBuilder we were initialized with."""
         return self._builder
 
-    def set_transformer(self, transformer):
+    def set_transformer(self, transformer: Optional[Transformer]) -> None:
         """Set the Transformer to use.
 
         You may use one Transformer for multiple Workers.  Use None to
@@ -125,11 +138,18 @@ class Worker(util.Observable):
             if start:
                 self.start()
 
-    def transformer(self):
+    def transformer(self) -> Optional[Transformer]:
         """Return the current Transformer, if set."""
         return self._transformer
 
-    def update(self, text, root_lexicon=False, start=0, removed=0, added=None):
+    def update(
+        self,
+        text: str,
+        root_lexicon: RootLexiconOrFalse = False,
+        start: int = 0,
+        removed: int = 0,
+        added: Optional[int] = None
+    ) -> None:
         """Start a process to update the tree and the transform.
 
         For the meaning of the arguments, see
@@ -143,7 +163,7 @@ class Worker(util.Observable):
             self._builder.busy = True
             self.start()
 
-    def start(self):
+    def start(self) -> None:
         """Start the update process.
 
         Sets the initial state and then calls :meth:`run_process`. This method
@@ -156,7 +176,7 @@ class Worker(util.Observable):
                 self._transform_state = BUILD
         self.run_process()
 
-    def run_process(self):
+    def run_process(self) -> None:
         """Exhaust the :meth:`process` generator.
 
         Called by :meth:`start`; performs the work after initial state has been
@@ -166,10 +186,10 @@ class Worker(util.Observable):
         reimplemented to do (parts of the) work in a background thread.
 
         """
-        for stage in self.process():
+        for _ in self.process():
             pass
 
-    def process(self):
+    def process(self) -> Iterator[str]:
         """Generator performing the actual process, exhausted by :meth:`run_process`."""
         c = self._condition
 
@@ -193,6 +213,7 @@ class Worker(util.Observable):
             if t:
                 while t and t is not old:
                     self._transform_lock.release()
+                    assert t is not None  # for type checker - SP
                     for stage in t.process(self._builder.root):
                         yield "transform_" + stage
                         state = _STATES.get(stage)
@@ -213,7 +234,7 @@ class Worker(util.Observable):
                 self._transform_state = IDLE
                 c.notify_all()
 
-    def wait_build(self):
+    def wait_build(self) -> None:
         """Wait for the build job to be completed.
 
         Immediately returns if there is no build job active.
@@ -223,7 +244,7 @@ class Worker(util.Observable):
             while self._tree_state & REPLACE:
                 self._condition.wait()
 
-    def wait_transform(self):
+    def wait_transform(self) -> None:
         """Wait for the transform job to be completed.
 
         Immediately returns if there is no transform job active.
@@ -233,7 +254,11 @@ class Worker(util.Observable):
             while self._transform_state & REPLACE:
                 self._condition.wait()
 
-    def get_root(self, wait=False, callback=None):
+    def get_root(
+        self,
+        wait: bool = False,
+        callback: Optional[Callable[[DocumentInterface], None]] = None
+    ) -> Optional[Context]:
         """Return the root element of the completed tree.
 
         This is simply the builder's ``root`` instance attribute, but this
@@ -262,7 +287,11 @@ class Worker(util.Observable):
                 self.wait_build()
             return self._builder.root
 
-    def get_transform(self, wait=False, callback=None):
+    def get_transform(
+        self,
+        wait: bool = False,
+        callback: Optional[Callable[[DocumentInterface], None]] = None
+    ) -> Optional[Any]:
         """Return the transformed result.
 
         If wait is True, the call blocks until (tokenizing and) transforming is
@@ -286,7 +315,7 @@ class Worker(util.Observable):
                     self.wait_transform()
                 return self._transformer.result(self._builder.root)
 
-    def slot_invalidate(self, context):
+    def slot_invalidate(self, context: Context) -> None:
         """Called when TreeBuilder emits ``("invalidate", context)``.
 
         Clears the node and its parents from the transform cache.
@@ -295,7 +324,7 @@ class Worker(util.Observable):
         if self._transformer:
             self._transformer.invalidate_node(context)
 
-    def slot_replace(self):
+    def slot_replace(self) -> None:
         """Called when TreeBuilder emits ``"replace"``.
 
         Interrupts the transformer.
@@ -304,7 +333,7 @@ class Worker(util.Observable):
         if self._transformer:
             self._transformer.interrupt(self._builder.root)
 
-    def start_build(self):
+    def start_build(self) -> None:
         """Called when the build process starts.
 
         Emits the ``'started'`` event.
@@ -312,7 +341,7 @@ class Worker(util.Observable):
         """
         self.emit("started")
 
-    def finish_build(self):
+    def finish_build(self) -> None:
         """Called when the treebuilder is done.
 
         Emits ``'tree_updated', start, end`` and then ``'tree_finished'``,
@@ -322,7 +351,7 @@ class Worker(util.Observable):
         self.emit("tree_updated", self._builder.start, self._builder.end)
         self.emit("tree_finished")
 
-    def finish_transform(self):
+    def finish_transform(self) -> None:
         """Called when the transform is finished.
 
         Emits ``'transform_finished'`` when the transform has been updated.
@@ -333,9 +362,9 @@ class Worker(util.Observable):
 
 class BackgroundWorker(Worker):
     """A Worker implementation that does the work in a background thread."""
-    def run_process(self):
+    def run_process(self) -> None:
         """Run the update process in a background thread."""
-        threading.Thread(target=super().run_process).start()
+        Thread(target=super().run_process).start()
 
 
 class WorkerDocumentMixin:
@@ -350,14 +379,22 @@ class WorkerDocumentMixin:
     starts, that part is also retokenized, until the state (the list of active
     lexicons) matches the state of existing tokens.
 
-    Also the transformed result, if a transformer is set, is updated.
+    Also, the transformed result, if a transformer is set, is updated.
 
     """
-    def __init__(self, root_lexicon=None, text="", worker=None, transformer=None):
+
+    def __init__(
+        self,
+        root_lexicon: RootLexicon = None,
+        text: str = "",
+        worker: Optional[Worker] = None,
+        transformer: Optional[Union[Transformer, Literal[True]]] = None
+    ):
         """Initialize with a :class:`Worker` instance, which is doing the work."""
+        from .transform import Transformer
         if transformer is True:
-            from .transform import Transformer
             transformer = Transformer()
+        assert isinstance(transformer, Transformer)  # for type checker - SP
         if worker is None:
             from .treebuilder import TreeBuilder
             worker = BackgroundWorker(TreeBuilder(root_lexicon), transformer)
@@ -371,19 +408,19 @@ class WorkerDocumentMixin:
         if text and root_lexicon:
             worker.update(text)
 
-    def worker(self):
+    def worker(self) -> Worker:
         """Return the Worker we were instantiated with."""
         return self._worker
 
-    def builder(self):
+    def builder(self) -> TreeBuilder:
         """Return the worker's TreeBuilder."""
         return self._worker._builder
 
-    def transformer(self):
+    def transformer(self) -> Optional[Transformer]:
         """Return the worker's Transformer, if set."""
         return self._worker._transformer
 
-    def set_transformer(self, transformer):
+    def set_transformer(self, transformer: Optional[Transformer]) -> None:
         """Set a new Transformer in the worker.
 
         Specify None to remove the current transformer.
@@ -393,11 +430,11 @@ class WorkerDocumentMixin:
         """
         self._worker.set_transformer(transformer)
 
-    def root_lexicon(self):
+    def root_lexicon(self) -> Lexicon:
         """Return the currently set root lexicon."""
         return self.builder().root.lexicon
 
-    def set_root_lexicon(self, root_lexicon):
+    def set_root_lexicon(self, root_lexicon: Lexicon) -> None:
         """Set the root lexicon to use to tokenize the text.
 
         Triggers an update of the tokenized tree.
@@ -409,7 +446,11 @@ class WorkerDocumentMixin:
         if not idle or root_lexicon is not w._builder.root.lexicon:
             self._worker.update(self.text(), root_lexicon)
 
-    def get_root(self, wait=False, callback=None):
+    def get_root(
+        self,
+        wait: bool = False,
+        callback: Optional[Callable[[DocumentInterface], None]] = None
+    ) -> Optional[Context]:
         """Get the root element of the completed tree.
 
         If wait is True, this call blocks until tokenizing is done, and the
@@ -426,7 +467,7 @@ class WorkerDocumentMixin:
             callback = self._callback_to_self(callback)
         return self._worker.get_root(wait, callback)
 
-    def open_lexicons(self):
+    def open_lexicons(self) -> Tuple[Lexicon]:
         """Return the list of lexicons that were left open at the end of the text.
 
         The root lexicon is not included; if parsing ended in the root lexicon,
@@ -435,12 +476,16 @@ class WorkerDocumentMixin:
         """
         return self.builder().lexicons
 
-    def modified_range(self):
+    def modified_range(self) -> Tuple[int, int]:
         """Return a two-tuple(start, end) describing the range that was re-tokenized."""
         b = self.builder()
         return b.start, b.end
 
-    def get_transform(self, wait=False, callback=None):
+    def get_transform(
+        self,
+        wait: bool = False,
+        callback: Optional[Callable[[DocumentInterface], None]] = None
+    ) -> Optional[Any]:
         """Return the transformed result (if a Transformer is active in the Worker).
 
         If wait is True, the call blocks until (tokenizing and) transforming is
@@ -457,7 +502,8 @@ class WorkerDocumentMixin:
             callback = self._callback_to_self(callback)
         return self._worker.get_transform(wait, callback)
 
-    def text_changed(self, start, removed, added):
+    # noinspection PyUnresolvedReferences
+    def text_changed(self, start: int, removed: int, added: Optional[int]) -> None:
         """Called after modification of the text.
 
         Retokenizes the modified part and updates the transformation.
@@ -466,7 +512,7 @@ class WorkerDocumentMixin:
         self._worker.update(self.text(), False, start, removed, added)
         super().text_changed(start, removed, added)
 
-    def token(self, pos):
+    def token(self, pos: int) -> Optional[Token]:
         """Returns the token at the specified position, in an intuitive way.
 
         If a token starts at position, it is returned. Otherwise, if a token
@@ -483,10 +529,10 @@ class WorkerDocumentMixin:
             if left_token and left_token.end == pos:
                 return left_token
             # see if token (to the right) is on the same line
-            if self.block_separator not in self[pos:token.pos]:
+            if self.block_separator not in self[pos:token.pos]:  # type: ignore - these are implemented in the Document class - SP
                 return token
 
-    def _callback_to_self(self, callback):
+    def _callback_to_self(self, callback: Callable[[DocumentInterface], None]) -> Callable[[DocumentInterface], None]:
         """Return a callable that calls callback with self as first argument.
 
         The original first argument is ignored (that's the Worker). Does not
@@ -495,8 +541,8 @@ class WorkerDocumentMixin:
         """
         selfref = weakref.ref(self)
         def cb(worker):
+            # noinspection PyMethodFirstArgAssignment
             self = selfref()
             if self:
-                callback(self)
+                callback(self)  # type: ignore - callback is expected to take a fully constructed DocumentInterface - SP
         return cb
-
