@@ -78,29 +78,49 @@ Both match CSS rules with the ``.escape`` class selector, but a rule with
 
 The order of the action names does not matter. E.g. an action ``Text.Comment``
 will match exactly the same CSS rules as an action ``Comment.Text``. So you
-should take some care when designing you action hierachy and not add too much
+should take some care when designing you action hierarchy and not add too much
 base action types.
 
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal, Tuple, Type, List, Union, Optional, Sequence, Dict, Iterator, Iterable
 
-import collections
 import itertools
-import functools
 import os
 
 from . import css
-from . import util
+from . util import Dispatcher, cached_property, cached_method
+
+if TYPE_CHECKING:
+    from .standardaction import StandardAction
+    from .css import Color
+    from .typeinfo import FontSize
+
+TextDecorationStyle = Literal["solid", "double", "dotted", "dashed", "wavy"]
+FontVariantPosition = Literal["normal", "sub", "super"]
+FontStyle = Literal["normal", "italic", "oblique"]
+TextDecorationLineType = Literal["underline", "overline", "line-through", "none"]
+FontKerning = Literal["auto", "normal", "none"]
+FontStretchType = Literal[
+    "ultra-condensed", "extra-condensed", "condensed", "semi-condensed",
+    "semi-expanded", "expanded", "extra-expanded", "ultra-expanded"
+]
+FontVariant = Literal[
+    "normal", "small-caps", "all-small-caps", "petite-caps",
+    "all-petite-caps", "unicase", "titling-caps"
+]
+FontWeight = Literal["normal", "bold", "lighter", "bolder"]
 
 
 class AbstractTheme:
     """Defines the interface of a Theme as used by a formatter."""
 
-    def baseformat(self, role="window", state="default"):
+    def baseformat(self, role: str = "window", state: str = "default") -> TextFormat:
         """Should return a text format for a specific role and a state."""
         raise NotImplementedError
 
-    def textformat(self, action):
+    def textformat(self, action: StandardAction) -> TextFormat:
         """Should return a text format for the specified action."""
         raise NotImplementedError
 
@@ -115,36 +135,36 @@ class Theme(AbstractTheme):
 
     """
 
-    def __init__(self, *filenames, stylesheet="", basename=""):
+    def __init__(self, *filenames: str, stylesheet: str = "", basename: str = ""):
         """Instantiate the Theme from CSS file(s) and/or text."""
-        self._filenames = filenames
-        self._css_text = stylesheet
-        self._css_base = basename
-        self.TextFormat = TextFormat
+        self._filenames: Tuple[str, ...] = filenames
+        self._css_text: str = stylesheet
+        self._css_base: str = basename
+        self.TextFormat: Type[TextFormat] = TextFormat
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         fnames = ', '.join(map(os.path.basename, self.filenames()))
         return '<{} [{}]>'.format(self.__class__.__name__, fnames)
 
-    @util.cached_property
-    def _stylesheet(self):
+    @cached_property
+    def _stylesheet(self) -> css.StyleSheet:
         """Load and cache the StyleSheet."""
         sheets = [css.StyleSheet.from_file(f) for f in self._filenames]
         if self._css_text or not self._filenames:
             sheets.append(css.StyleSheet.from_text(self._css_text, self._css_base))
         return sum(sheets[1:], sheets[0])
 
-    @util.cached_property
-    def style(self):
+    @cached_property
+    def style(self) -> css.Style:
         """The stylesheet style rules (see :py:class:`css.Style <parce.css.Style>`)."""
         return self._stylesheet.style
 
-    def filenames(self):
+    def filenames(self) -> List[str]:
         """Return the list of filenames of the used stylesheet when instantiated"""
         return self._stylesheet.filenames()
 
-    @util.cached_method
-    def baseformat(self, role="window", state="default"):
+    @cached_method
+    def baseformat(self, role: str = "window", state: str = "default") -> TextFormat:
         """Return a TextFormat for a specific role and a state.
 
         The ``role`` may be any string that maps to a CSS class in the theme
@@ -160,7 +180,7 @@ class Theme(AbstractTheme):
             preferences.
         ``"selection"``
             The TextFormat to use for selected text. Uses the ``::selection``
-            pseudo element.
+            pseudo-element.
         ``"current-line"``
             The TextFormat for the current line. If you use it, set only the
             *background* color in your theme file.
@@ -180,8 +200,8 @@ class Theme(AbstractTheme):
             e.pseudo_classes = [state]
         return self.TextFormat(self.style.select_element(e).properties())
 
-    @util.cached_method
-    def textformat(self, action):
+    @cached_method
+    def textformat(self, action: StandardAction) -> TextFormat:
         """Return the TextFormat for the specified action."""
         class_ = css_class(action)
         e = css.Element(class_=class_, parent=css.Element(class_="parce"))
@@ -230,40 +250,44 @@ class TextFormat:
     it is not needed to set these again in such cases.
 
     """
-    color = None                    #: the foreground color as Color(r, g, b, a) tuple
-    background_color = None         #: the background color (id)
-    caret_color = None              #: the color for the text cursor
-    text_decoration_color = None    #: the color for text decoration
-    text_decoration_line = ()       #: underline, overline and/or line-through
-    text_decoration_style = None    #: solid, double, dotted, dashed or wavy
-    font_family = ()                #: family or generic name
-    font_kerning = None             #: font kerning
-    font_size = None                #: font size
-    font_size_unit = None           #: font size unit if given
-    font_stretch = None             #: font stretch value (keyword or float, 1.0 is normal)
-    font_style = None               #: normal, italic or oblique
-    font_style_angle = None         #: oblique slant if given
-    font_style_angle_unit = None    #: oblique slant unit if given
-    font_variant_caps = None        #: all kind of small caps
-    font_variant_position = None    #: normal, sub or super
-    font_weight = None              #: 100 - 900 or keyword like ``bold``
+    color: Optional[Color] = None                                   #: the foreground color as Color(r, g, b, a) tuple
+    background_color: Optional[Color] = None                        #: the background color (id)
+    caret_color: Optional[Color] = None                             #: the color for the text cursor
+    text_decoration_color: Optional[Color] = None                   #: the color for text decoration
+    text_decoration_line: Sequence[TextDecorationLineType] = ()     #: underline, overline and/or line-through
+    text_decoration_style: Optional[TextDecorationStyle] = None     #: solid, double, dotted, dashed or wavy
+    font_family: Sequence[str] = ()                                 #: family or generic name
+    font_kerning: Optional[FontKerning] = None                      #: font kerning
+    font_size: Optional[Union[int, FontSize]] = None                #: font size
+    font_size_unit: Optional[str] = None                            #: font size unit if given  TODO - can this be a literal?
+    font_stretch: Union[FontStretchType, float] = None              #: font stretch value (keyword or float, 1.0 is normal)
+    font_style: Optional[FontStyle] = None                          #: normal, italic or oblique
+    font_style_angle: Optional[int] = None                          #: oblique slant if given
+    font_style_angle_unit: Optional[str] = None                     #: oblique slant unit if given  TODO - can this be a literal?
+    font_variant_caps: Optional[FontVariant] = None                 #: all kind of small caps
+    font_variant_position: Optional[FontVariantPosition] = None     #: normal, sub or super
+    font_weight: Optional[Union[int, FontWeight]] = None            #: 100 - 900 or keyword like ``bold``
 
-    _dispatch = util.Dispatcher()
+    _dispatch: Dispatcher = Dispatcher()
 
-    def __repr__(self):
-        return "<{} {}>".format(self.__class__.__name__,
-            ", ".join("{}={}".format(key, repr(value))
-                                for key, value in sorted(self.__dict__.items())))
+    def __repr__(self) -> str:
+        return "<{} {}>".format(
+            self.__class__.__name__,
+            ", ".join(
+                "{}={}".format(key, repr(value))
+                for key, value in sorted(self.__dict__.items())
+            )
+        )
 
-    def __init__(self, properties):
+    def __init__(self, properties: Dict[str, css.Value]):
         for prop, values in properties.items():
             self._dispatch(prop, values)
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         """Return True if at least one property is set."""
         return bool(self.__dict__)
 
-    def __sub__(self, other):
+    def __sub__(self, other: TextFormat) -> TextFormat:
         """Return a new TextFormat with the properties removed that are the same in ``other``."""
         new = type(self)({})
         for props in (
@@ -280,8 +304,10 @@ class TextFormat:
             ('font_variant_position',),
             ('font_weight',),
         ):
-            if any(prop in self.__dict__ for prop in props) and \
-                    any(self.__dict__.get(prop) != other.__dict__.get(prop) for prop in props):
+            if (
+                any(prop in self.__dict__ for prop in props)
+                and any(self.__dict__.get(prop) != other.__dict__.get(prop) for prop in props)
+            ):
                 for prop in props:
                     try:
                         new.__dict__[prop] = self.__dict__[prop]
@@ -289,22 +315,22 @@ class TextFormat:
                         pass
         return new
 
-    def __add__(self, other):
+    def __add__(self, other: TextFormat) -> TextFormat:
         """Return a new TextFormat adding the other's properties."""
         new = type(self)({})
         new.__dict__.update(self.__dict__)
         new.__dict__.update(other.__dict__)
         return new
 
-    def __eq__(self, other):
+    def __eq__(self, other: TextFormat) -> bool:
         """Return True if other has the same properties."""
         return self.__dict__ == other.__dict__
 
-    def __ne__(self, other):
+    def __ne__(self, other: TextFormat) -> bool:
         """Return True if other has different properties."""
         return self.__dict__ != other.__dict__
 
-    def css_properties(self):
+    def css_properties(self) -> Dict[str, str]:
         """Return a dict usable to write out a CSS rule with our properties."""
         return dict(itertools.chain(
             self.write_color(),
@@ -312,7 +338,7 @@ class TextFormat:
             self.write_font(),
         ))
 
-    def write_color(self):
+    def write_color(self) -> Iterator[Tuple[str, str]]:
         """Yield color and background color as CSS properties, if set."""
         if self.color:
             yield "color", css.color2hex(self.color)
@@ -321,7 +347,7 @@ class TextFormat:
         if self.caret_color:
             yield "caret-color", css.color2hex(self.caret_color)
 
-    def write_text_decoration(self):
+    def write_text_decoration(self) -> Iterator[Tuple[str, str]]:
         """Yield a text-decoration property, if set."""
         props = []
         props.extend(self.text_decoration_line)
@@ -332,7 +358,7 @@ class TextFormat:
         if props:
             yield "text-decoration", " ".join(props)
 
-    def write_font(self):
+    def write_font(self) -> Iterator[Tuple[str, str]]:
         """Yield all font-xxxx properties, if set."""
         if self.font_family:
             yield "font-family", ", ".join(map(css.quote_if_needed, self.font_family))
@@ -357,39 +383,39 @@ class TextFormat:
             yield "font-weight", format(self.font_weight)
 
     @_dispatch("color")
-    def read_color(self, values):
+    def read_color(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.color:
                 self.color = v.color
                 return
 
     @_dispatch("background-color")
-    def read_background_color(self, values):
+    def read_background_color(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.color:
                 self.background_color = v.color
                 return
 
     @_dispatch("background")
-    def read_background(self, values):
+    def read_background(self, values: Iterable[css.Value]) -> None:
         self.read_background_color(values)
 
     @_dispatch("caret-color")
-    def read_caret_color(self, values):
+    def read_caret_color(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.color:
                 self.caret_color = v.color
                 return
 
     @_dispatch("text-decoration-color")
-    def read_text_decoration_color(self, values):
+    def read_text_decoration_color(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.color:
                 self.text_decoration_color = v.color
                 return
 
     @_dispatch("text-decoration-line")
-    def read_text_decoration_line(self, values):
+    def read_text_decoration_line(self, values: Iterable[css.Value]) -> None:
         decos = []
         for v in values:
             if v.text in ("underline", "overline", "line-through"):
@@ -399,20 +425,20 @@ class TextFormat:
         self.text_decoration_line = decos
 
     @_dispatch("text-decoration-style")
-    def read_text_decoration_style(self, values):
+    def read_text_decoration_style(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("solid", "double", "dotted", "dashed", "wavy"):
                 self.text_decoration_style = v.text
                 return
 
     @_dispatch("text-decoration")
-    def read_text_decoration(self, values):
+    def read_text_decoration(self, values: Iterable[css.Value]) -> None:
         self.read_text_decoration_color(values)
         self.read_text_decoration_line(values)
         self.read_text_decoration_style(values)
 
     @_dispatch("font-family")
-    def read_font_family(self, values):
+    def read_font_family(self, values: Iterable[css.Value]) -> None:
         families = []
         for v in values:
             if v.text and (v.quoted or v.text in (
@@ -430,14 +456,14 @@ class TextFormat:
         self.font_family = families
 
     @_dispatch("font-kerning")
-    def read_font_kerning(self, values):
+    def read_font_kerning(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("auto", "normal", "none"):
                 self.font_kerning = v.text
                 return
 
     @_dispatch("font-size")
-    def read_font_size(self, values):
+    def read_font_size(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("xx-small", "x-small", "small", "medium",
                           "large", "x-large", "xx-large", "xxx-large",
@@ -450,7 +476,7 @@ class TextFormat:
                 return
 
     @_dispatch("font-stretch")
-    def read_font_stretch(self, values):
+    def read_font_stretch(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("ultra-condensed", "extra-condensed", "condensed",
                           "semi-condensed", "semi-expanded", "expanded",
@@ -460,7 +486,7 @@ class TextFormat:
                 self.font_stretch = v.number
 
     @_dispatch("font-style")
-    def read_font_style(self, values):
+    def read_font_style(self, values: Iterable[css.Value]) -> None:
         v = values[0]
         for n in values[1:] + [None]:
             if v.text in ("normal", "italic"):
@@ -475,7 +501,7 @@ class TextFormat:
             v = n
 
     @_dispatch("font-variant-caps")
-    def read_font_variant_caps(self, values):
+    def read_font_variant_caps(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("normal", "small-caps", "all-small-caps", "petite-caps",
                           "all-petite-caps", "unicase", "titling-caps"):
@@ -483,14 +509,14 @@ class TextFormat:
                 return
 
     @_dispatch("font-variant-position")
-    def read_font_variant_position(self, values):
+    def read_font_variant_position(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("normal", "sub", "super"):
                 self.font_variant_position = v.text
                 return
 
     @_dispatch("font-weight")
-    def read_font_weight(self, values):
+    def read_font_weight(self, values: Iterable[css.Value]) -> None:
         for v in values:
             if v.text in ("normal", "bold", "lighter", "bolder"):
                 self.font_weight = v.text
@@ -500,7 +526,7 @@ class TextFormat:
                 return
 
     @_dispatch("font")
-    def read_font(self, values):
+    def read_font(self, values: Iterable[css.Value]) -> None:
         self.read_font_style(values)
         numvalues = []
         for v in values:
@@ -528,7 +554,7 @@ class TextFormat:
             self.font_size, self.font_size_unit = numvalues[1]
 
 
-def css_class(action):
+def css_class(action: StandardAction) -> str:
     """Return a CSS class string for the specified standard action.
 
     The class names are simply the name of the action and all its ancestor

@@ -24,9 +24,8 @@ Helper functions and classes for the :mod:`~parce.treebuilder` module.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple, Iterable
+from typing import TYPE_CHECKING, Optional, Tuple, Iterable, NamedTuple
 
-import collections
 import itertools
 
 from . import util
@@ -37,13 +36,27 @@ from .target import TargetFactory
 if TYPE_CHECKING:
     from .treebuilder import OptionalLexiconOrFalse, IndexTrail
     from .tree import TokenOrContext
+    from .lexicon import Lexicon
 
 #: encapsulates the return values of :meth:`TreeBuilder.build_new_tree`
-BuildResult = collections.namedtuple("BuildResult", "tree start end offset lexicons")
-
+# BuildResult = collections.namedtuple("BuildResult", "tree start end offset lexicons")
 #: encapsulates the return values of :meth:`TreeBuilder.replace_tree`
-ReplaceResult = collections.namedtuple("ReplaceResult", "start end lexicons")
+# ReplaceResult = collections.namedtuple("ReplaceResult", "start end lexicons")
 
+# Created in place of the above namedtuples, to add annotations to the fields. - SP
+class BuildResult(NamedTuple):
+    """Encapsulates the return values of :meth:`TreeBuilder.build_new_tree`"""
+    tree: Context
+    start: int
+    end: int
+    offset: int
+    lexicons: Tuple[Lexicon, ...]
+
+class ReplaceResult(NamedTuple):
+    """Encapsulates the return values of :meth:`TreeBuilder.replace_tree`"""
+    start: int
+    end: int
+    lexicons: Tuple[Lexicon, ...]
 
 class Changes:
     """Store changes that have to be made to a tree.

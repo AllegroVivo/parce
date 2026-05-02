@@ -42,7 +42,10 @@ You can also create and populate your own :class:`Registry`.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple, overload, Dict, Any
+from typing import (
+    TYPE_CHECKING, Optional, Sequence, Tuple, overload, Dict, Any,
+    NamedTuple
+)
 
 import collections
 import fnmatch
@@ -54,45 +57,79 @@ if TYPE_CHECKING:
     from .typeinfo import MimeType
     from .lexicon import Lexicon
 
-Entry = collections.namedtuple("Entry", (
-    "name",
-    "desc",
-    "section",
-    "author",
-    "aliases",
-    "filenames",
-    "mimetypes",
-    "guesses",
-))
-"""
-Used to store entries in the Registry dict, using the qualified name of the
-root lexicon as the key.
-"""
-Entry.name.__doc__ = "A human-readable name for the file type."
-Entry.desc.__doc__ = "A short description."
-Entry.section.__doc__ = (
-    """The section, e.g. for grouped display in a menu. (If the section is empty,
-    the entry needs not to be shown in a menu.)"""
-)
-Entry.author.__doc__ = "The author."
-Entry.aliases.__doc__ = "A list of other names this lexicon can be found under."
-Entry.filenames.__doc__ = (
-    """A list of tuples (pattern, weight). A pattern is a plain filename or a
-    filename with globbing characters, e.g. ``"Makefile"`` or ``"*.c"``, and the
-    weight is a floating point value indicating the probability that the root
-    lexicon should be chosen for this filename (0..1 range)."""
-)
-Entry.mimetypes.__doc__ = (
+# Entry = collections.namedtuple("Entry", (
+#     "name",
+#     "desc",
+#     "section",
+#     "author",
+#     "aliases",
+#     "filenames",
+#     "mimetypes",
+#     "guesses",
+# ))
+# """
+# Used to store entries in the Registry dict, using the qualified name of the
+# root lexicon as the key.
+# """
+# Entry.name.__doc__ = "A human-readable name for the file type."
+# Entry.desc.__doc__ = "A short description."
+# Entry.section.__doc__ = (
+#     """The section, e.g. for grouped display in a menu. (If the section is empty,
+#     the entry needs not to be shown in a menu.)"""
+# )
+# Entry.author.__doc__ = "The author."
+# Entry.aliases.__doc__ = "A list of other names this lexicon can be found under."
+# Entry.filenames.__doc__ = (
+#     """A list of tuples (pattern, weight). A pattern is a plain filename or a
+#     filename with globbing characters, e.g. ``"Makefile"`` or ``"*.c"``, and the
+#     weight is a floating point value indicating the probability that the root
+#     lexicon should be chosen for this filename (0..1 range)."""
+# )
+# Entry.mimetypes.__doc__ = (
+#     """A list of tuples (mimetype, weight). A mimetype is a string like
+#     ``"text/css"``, the weight is a floating point value indicating the probability
+#     that the root lexicon should be chosen for this filename (0..1 range)."""
+# )
+# Entry.guesses.__doc__ = (
+#     """A list of tuples (regexp, weight). The first 5000 characters of the contents
+#     are matched against the regular expression, and when it matches, the weight is
+#     added to the already computed weight for this root lexicon."""
+# )
+
+# Created in place of the above namedtuple, to add annotations to the fields. - SP
+class Entry(NamedTuple):
+    """Used to store entries in the Registry dict, using the qualified name of the
+    root lexicon as the key."""
+    name: str
+    """A human-readable name for the file type."""
+    desc: str
+    """A short description."""
+    section: Optional[str]
+    """
+    The section, e.g. for grouped display in a menu. (If the section is empty,
+    the entry needs not to be shown in a menu.)
+    """
+    author: str
+    """The author."""
+    aliases: Sequence[str]
+    """A list of other names this lexicon can be found under."""
+    filenames: Sequence[Tuple[str, float]]
+    """
+    A list of tuples (pattern, weight). A pattern is a plain filename or a
+    filename with globbing characters, e.g. ``"Makefile"`` or ``"*.c"``, and the 
+    weight is a floating point value indicating the probability that the root 
+    lexicon should be chosen for this filename (0..1 range).
+    """
+    mimetypes: Sequence[Tuple[MimeType, float]]
     """A list of tuples (mimetype, weight). A mimetype is a string like
     ``"text/css"``, the weight is a floating point value indicating the probability
-    that the root lexicon should be chosen for this filename (0..1 range)."""
-)
-Entry.guesses.__doc__ = (
-    """A list of tuples (regexp, weight). The first 5000 characters of the contents
-    are matched against the regular expression, and when it matches, the weight is
-    added to the already computed weight for this root lexicon."""
-)
-
+    that the root lexicon should be chosen for this filename (0..1 range).
+    """
+    guesses: Sequence[Tuple[str, float]]
+    """A list of tuples (regexp, weight). The first 5000 characters of the contents 
+    are matched against the regular expression, and when it matches, the weight is 
+    added to the already computed weight for this root lexicon.
+    """
 
 class Registry(dict):
     """Registry of language definitions.

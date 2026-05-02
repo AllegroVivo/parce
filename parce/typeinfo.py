@@ -41,6 +41,11 @@ _CommonMimeTypes = Literal[
     "audio/wav"
 ]
 
+FontSize = Literal[
+    "xx-small", "x-small", "small", "medium", "large", "x-large",
+    "xx-large", "xxx-large", "larger", "smaller"
+]
+
 Encoding = Union[_CommonEncodings, str]
 MimeType = Union[_CommonMimeTypes, str]
 

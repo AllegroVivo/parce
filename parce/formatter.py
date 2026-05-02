@@ -42,9 +42,10 @@ FormatContext.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Dict, Iterator, Tuple, Any, Callable
-
-import collections
+from typing import (
+    TYPE_CHECKING, Optional, Dict, Iterator, Tuple, Any, Callable,
+    NamedTuple
+)
 
 
 from .standardaction import StandardAction
@@ -60,51 +61,94 @@ if TYPE_CHECKING:
 # highlighted by the formatter
 _Unparsed = StandardAction("_Unparsed")
 
-FormatCache = collections.namedtuple(
-    "FormatCache",
-    "theme base textformat baseformat unparsed"
-)
-"""FormatCache is a named tuple encapsulating formatting logic.
+# FormatCache = collections.namedtuple(
+#     "FormatCache",
+#     "theme base textformat baseformat unparsed"
+# )
+# """FormatCache is a named tuple encapsulating formatting logic.
+#
+# At least two attributes must be defined:
+#
+# ``textformat(action)``
+#     is called to return formatting information for the specified standard
+#     action.
+# ``baseformat(role, state)``
+#     is called to return general formatting information from a Theme, converted
+#     using the factory that was given to the formatter. See the
+#     :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
+#
+# Both callables may return None. The three other attributes can be None; they
+# are:
+#
+# ``theme``
+#     a reference to the format cache's Theme object.
+#
+# ``base``
+#     the result of ``baseformat("window", "default")``, indicating the general
+#     format of the text window (color, font, background color, etc). See the
+#     :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
+#
+# ``unparsed``
+#     the result of ``textformat(StandardAction("_Unparsed"))``, which denotes
+#     the text format to use for unparsed text. A Theme can define that by putting
+#     properties in the ``.parce ._unparsed`` class. By default unparsed text is
+#     not formatted.
+#
+# """
 
-At least two attributes must be defined:
+# FormatRange = collections.namedtuple("FormatRange", "pos end textformat")
+# """A named tuple denoting a text range from ``pos`` to ``end`` that should be
+# formatted with ``textformat``.
+#
+# The textformat can be any object, that depends on the factory function that is
+# used to convert a standard action or (when using a :class:`~parce.theme.Theme`)
+# a :class:`~parce.theme.TextFormat` to something you can use for the output
+# format you want to create.
+#
+# """
 
-``textformat(action)``
-    is called to return formatting information for the specified standard
-    action.
-``baseformat(role, state)``
-    is called to return general formatting information from a Theme, converted
-    using the factory that was given to the formatter. See the
-    :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
-
-Both callables may return None. The three other attributes can be None; they
-are:
-
-``theme``
-    a reference to the format cache's Theme object.
-
-``base``
+# Created in place of the above namedtuples, to add annotations to the fields. - SP
+class FormatCache(NamedTuple):
+    theme: Optional[Theme]
+    """A reference to the format cache's Theme object."""
+    base: Optional[TextFormat]
+    """
     the result of ``baseformat("window", "default")``, indicating the general
     format of the text window (color, font, background color, etc). See the
     :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
-
-``unparsed``
+    """
+    textformat: Callable[[StandardAction], Optional[TextFormat]]
+    """
+    Is called to return formatting information for the specified standard
+    action.
+    """
+    baseformat: Callable[[str, str], Optional[TextFormat]]
+    """
+    is called to return general formatting information from a Theme, converted
+    using the factory that was given to the formatter. See the
+    :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
+    """
+    unparsed: Optional[TextFormat]
+    """
     the result of ``textformat(StandardAction("_Unparsed"))``, which denotes
     the text format to use for unparsed text. A Theme can define that by putting
     properties in the ``.parce ._unparsed`` class. By default unparsed text is
     not formatted.
+    """
 
-"""
+class FormatRange(NamedTuple):
+    """
+    Denotes a text range from ``pos`` to ``end`` that should be formatted
+    with ``textformat``.
 
-FormatRange = collections.namedtuple("FormatRange", "pos end textformat")
-"""A named tuple denoting a text range from ``pos`` to ``end`` that should be
-formatted with ``textformat``.
-
-The textformat can be any object, that depends on the factory function that is
-used to convert a standard action or (when using a :class:`~parce.theme.Theme`)
-a :class:`~parce.theme.TextFormat` to something you can use for the output
-format you want to create.
-
-"""
+    The textformat can be any object, that depends on the factory function that is
+    used to convert a standard action or (when using a :class:`~parce.theme.Theme`)
+    a :class:`~parce.theme.TextFormat` to something you can use for the output
+    format you want to create.
+    """
+    pos: int
+    end: int
+    textformat: Optional[TextFormat]
 
 FormatResult = Tuple[str, Optional[TextFormat]]
 TextFormatConverter = Callable[[Optional[TextFormat]], Optional[Any]]
@@ -263,15 +307,15 @@ class AbstractFormatter:
                 prev_end = start
                 for t in tokens():
                     if t.pos > prev_end:
-                        yield prev_end, t.pos, unparsed
+                        yield FormatRange(prev_end, t.pos, unparsed)
                     prev_end = t.end
                     f = fc.textformat(t.action)
                     if f is None:
                         f = fc.base
                     if f is not None:
-                        yield t.pos, t.end, f
+                        yield FormatRange(t.pos, t.end, f)
                 if end is not None and prev_end < end:
-                    yield prev_end, end, unparsed
+                    yield FormatRange(prev_end, end, unparsed)
         else:
             # yield fc.base (if defined) between tokens
             def stream() -> Iterator[FormatRange]:
@@ -282,11 +326,11 @@ class AbstractFormatter:
                     f = fc.textformat(t.action)
                     if f is not None:
                         if fc.base is not None and t.pos > prev_end:
-                            yield prev_end, t.pos, fc.base
-                        yield t.pos, t.end, f
+                            yield FormatRange(prev_end, t.pos, fc.base)
+                        yield FormatRange(t.pos, t.end, f)
                     prev_end = t.end
                 if fc.base is not None and end is not None and prev_end < end:
-                    yield prev_end, end, fc.base
+                    yield FormatRange(prev_end, end, fc.base)
 
         format_context and format_context.start(fc)
         yield from util.merge_adjacent(

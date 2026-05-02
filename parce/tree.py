@@ -362,8 +362,8 @@ class Node:
     @property
     def query(self) -> Query:
         """Query this node in different ways; see the :mod:`~parce.query` module."""
-        def gen():
-            yield self
+        def gen() -> Iterator[TokenOrContext]:
+            yield self  # type: ignore
         return Query(gen)
 
     def delete(self) -> Optional[Context]:
@@ -705,9 +705,9 @@ class Context(list[TokenOrContext], Node):
     def __new__(cls, lexicon, parent):
         return list.__new__(cls)  # type: ignore - this is fine, we inherit from list - SP
 
-    def __init__(self, lexicon: Optional[Lexicon], parent: Optional[Context]):
+    def __init__(self, lexicon: Lexicon, parent: Optional[Context]):
         super().__init__()
-        self.lexicon: Optional[Lexicon] = lexicon  #: The lexicon this context was instantiated with.
+        self.lexicon: Lexicon = lexicon  #: The lexicon this context was instantiated with.
         self.parent: Optional[Context] = parent
 
     def __repr__(self) -> str:
@@ -717,7 +717,8 @@ class Context(list[TokenOrContext], Node):
         name = self.lexicon and repr(self.lexicon)
         children = "child" if len(self) == 1 else "children"
         return "<Context {} at {}-{} ({} {})>".format(
-            name, pos, end, len(self), children)
+            name, pos, end, len(self), children
+        )
 
     def __hash__(self) -> int:
         return Node.__hash__(self)

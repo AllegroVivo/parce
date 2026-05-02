@@ -13,6 +13,7 @@
       <w>endingwith</w>
       <w>exprs</w>
       <w>findmember</w>
+      <w>fnames</w>
       <w>formatstr</w>
       <w>gselect</w>
       <w>ifarg</w>
@@ -26,12 +27,14 @@
       <w>lstrip</w>
       <w>maxcount</w>
       <w>mincount</w>
+      <w>namedtuples</w>
       <w>nend</w>
       <w>newcontext</w>
       <w>newlang</w>
       <w>nocases</w>
       <w>npos</w>
       <w>nrest</w>
+      <w>numvalues</w>
       <w>rstrip</w>
       <w>standardactions</w>
       <w>startingwith</w>

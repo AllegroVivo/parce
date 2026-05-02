@@ -88,9 +88,7 @@ And here's how the same text would translate to a tree structure::
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Iterable, List, Tuple, Any
-
-import collections
+from typing import TYPE_CHECKING, Iterable, List, Tuple, Any, NamedTuple, Optional
 
 from .ruleitem import ActionItem, Item
 from .target import TargetFactory, Target
@@ -98,11 +96,19 @@ from .util import unroll
 
 if TYPE_CHECKING:
     from .lexicon import Lexicon
+    from .standardaction import StandardAction
 
-Event = collections.namedtuple("Event", "target lexemes")
-Event.target.__doc__ = "A :class:`~.target.Target` or None."
-Event.lexemes.__doc__ = "One or more ``(pos, text, action)`` tuples."
+# Event = collections.namedtuple("Event", "target lexemes")
+# Event.target.__doc__ = "A :class:`~.target.Target` or None."
+# Event.lexemes.__doc__ = "One or more ``(pos, text, action)`` tuples."
 
+# Created in place of the above namedtuple, to add annotations to the fields. - SP
+class Event(NamedTuple):
+    """Event is the result of parsing text with a Lexer."""
+    target: Optional[Target]
+    """A :class:`~.target.Target` or None."""
+    lexemes: Tuple[Tuple[int, str, StandardAction], ...]
+    """One or more ``(pos, text, action)`` tuples."""
 
 class Lexer:
     """A Lexer is responsible for parsing text using Lexicons.
@@ -123,7 +129,7 @@ class Lexer:
         """Get the events from parsing text from the specified position."""
         lexicons = self.lexicons
         target_factory = TargetFactory()
-        get_target = target_factory.get # access methods directly (faster)
+        get_target = target_factory.get  # access methods directly (faster)
         add_target = target_factory.add
         circular = set()
 

@@ -179,7 +179,7 @@ class StyleSheet:
         return cls.load_from_data(open(filename, 'rb').read())
 
     @classmethod
-    def from_file(cls, filename, path=None, allow_import=True):
+    def from_file(cls, filename, path=None, allow_import=True) -> StyleSheet:
         """Return a new StyleSheet adding Rules and Conditions from a local filename.
 
         The ``path`` argument is currently unused. If ``allow_import`` is
@@ -274,7 +274,7 @@ class StyleSheet:
 
         return cls(get_rules(css), filename)
 
-    def __add__(self, other):
+    def __add__(self, other: StyleSheet) -> StyleSheet:
         """Create a new StyleSheet by appending the other's rules."""
         new = type(self)(self.rules + other.rules)
         new._imported_filenames = list(set(self.filenames() + other.filenames()))

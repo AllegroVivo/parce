@@ -34,15 +34,29 @@ You can sort of "add" targets using a TargetFactory, which can create single
 Target objects combining multiple targets in once.
 
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Tuple, NamedTuple, Optional
 
 import collections
 import itertools
 
+if TYPE_CHECKING:
+    from .lexicon import Lexicon, RuleTuple
 
-#: Used by the :mod:`.lexer` to describe lexicon changes.
-Target = collections.namedtuple("Target", "pop push")
-Target.pop.__doc__ = "A negative integer or 0, describing how many lexicons to leave."
-Target.push.__doc__ = "A tuple of zero or more Lexicons to enter."
+# Target = collections.namedtuple("Target", "pop push")
+# Target.pop.__doc__ = "A negative integer or 0, describing how many lexicons to leave."
+# Target.push.__doc__ = "A tuple of zero or more Lexicons to enter."
+
+# Used by the :mod:`.lexer` to describe lexicon changes.
+# Created in place of the above namedtuple, to add annotations to the fields. - SP
+class Target(NamedTuple):
+    """Target describes the movement between Lexicons during parsing."""
+    pop: int
+    """A negative integer or 0, describing how many lexicons to leave."""
+
+    push: Tuple[Lexicon, ...]
+    """A tuple of zero or more Lexicons to enter."""
 
 
 class TargetFactory:
@@ -52,13 +66,13 @@ class TargetFactory:
     state.
 
     """
-    __slots__ = '_pop', '_push'
+    __slots__ = ('_pop', '_push')
 
     def __init__(self):
-        self._pop = 0
-        self._push = []
+        self._pop: int = 0
+        self._push: List[Lexicon] = []
 
-    def add(self, target):
+    def add(self, target: Target):
         """Add a Target to this factory."""
         if target:
             if target.pop == 0:
@@ -69,7 +83,7 @@ class TargetFactory:
                 self._pop += len(self._push) + target.pop
                 self._push[:] = target.push
 
-    def get(self):
+    def get(self) -> Optional[Target]:
         """Return the current :class:`Target`.
 
         Returns None if there is nothing to pop and push.
@@ -82,11 +96,11 @@ class TargetFactory:
             self._push.clear()
             return t
 
-    def push(self, *lexicons):
+    def push(self, *lexicons: Lexicon) -> None:
         """Enter one or more lexicon(s)."""
         self._push.extend(lexicons)
 
-    def pop(self, pop=-1):
+    def pop(self, pop: int = -1) -> None:
         """Pop off one (or more) lexicon(s)."""
         if pop:
             if -pop <= len(self._push):
@@ -96,7 +110,7 @@ class TargetFactory:
                 self._push.clear()
 
     @classmethod
-    def make(cls, lexicon, rule):
+    def make(cls, lexicon: Lexicon, rule) -> Optional[Target]:  # TODO: type rule - DP
         """Create a Target of a rule."""
         if rule:
             f = cls()
@@ -109,5 +123,3 @@ class TargetFactory:
                 else:
                     f.push(t)
             return f.get()
-
-

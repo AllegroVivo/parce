@@ -41,11 +41,10 @@ see if an encoding is defined there, and use that for I/O operations.
 from __future__ import annotations
 
 import codecs
-import collections
 import io
 import os
 import re
-from typing import TYPE_CHECKING, Optional, Union, Literal, Self
+from typing import TYPE_CHECKING, Optional, Union, Literal, Self, NamedTuple
 from urllib.parse import urlparse
 
 from . import util
@@ -57,11 +56,21 @@ if TYPE_CHECKING:
     from .work import Worker
     from .transform import Transformer
 
-DecodeResult = collections.namedtuple("DecodeResult", "root_lexicon text encoding")
-"""The result of the :meth:`DocumentIOMixin.decode_data` method."""
-DecodeResult.root_lexicon.__doc__ = "The root lexicon or None."
-DecodeResult.text.__doc__ = "The decoded text."
-DecodeResult.encoding.__doc__ = "The encoding that was specified or determined, or None."
+# DecodeResult = collections.namedtuple("DecodeResult", "root_lexicon text encoding")
+# """The result of the :meth:`DocumentIOMixin.decode_data` method."""
+# DecodeResult.root_lexicon.__doc__ = "The root lexicon or None."
+# DecodeResult.text.__doc__ = "The decoded text."
+# DecodeResult.encoding.__doc__ = "The encoding that was specified or determined, or None."
+
+# Created in place of the above namedtuple, to add annotations to the fields. - SP
+class DecodeResult(NamedTuple):
+    """The result of the :meth:`DocumentIOMixin.decode_data` method."""
+    root_lexicon: RootLexicon
+    """The root lexicon or None."""
+    text: str
+    """The decoded text."""
+    encoding: Optional[Encoding]
+    """The encoding that was specified or determined, or None."""
 
 DEFAULT_ENCODING: Encoding = "utf-8"  #: The general default encoding, if a Language does not define another.
 TEMP_TEXT_MAXSIZE: int = 5000  #: The maximum size of a text snippet that is searched for an encoding.
@@ -209,7 +218,7 @@ class IO:
 
         """
         io_cls = lexicon and util.language_sister_class(lexicon.language, "{}IO", IO, True) or cls
-        return io_cls()
+        return io_cls()  # type: ignore - SP
 
     def default_encoding(self) -> Encoding:
         """Return the default encoding to use."""
