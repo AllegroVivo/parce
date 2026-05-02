@@ -22,6 +22,7 @@
       <w>ifmember</w>
       <w>ifneq</w>
       <w>innergen</w>
+      <w>lastindex</w>
       <w>latin</w>
       <w>localfile</w>
       <w>lstrip</w>
@@ -35,6 +36,7 @@
       <w>npos</w>
       <w>nrest</w>
       <w>numvalues</w>
+      <w>olditems</w>
       <w>rstrip</w>
       <w>standardactions</w>
       <w>startingwith</w>

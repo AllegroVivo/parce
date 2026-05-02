@@ -28,26 +28,32 @@ context, and some toplevel convenience functions.
 See also the documentation: :doc:`transforming`.
 
 """
+from __future__ import annotations
 
-import collections
-import weakref
+from types import MethodType
+from typing import (
+    TYPE_CHECKING, Any, NamedTuple, Optional, Iterable, Iterator, List,
+    Dict, Tuple, Sequence, Callable, ParamSpec
+)
 
-from . import util
+from weakref import WeakKeyDictionary
 
+from . util import Observable, caching_dict, language_sister_class
 
-class Item(collections.namedtuple("Item", "name obj")):
-    """A named tuple(name, obj) wrapping the return value of a Transform method.
+if TYPE_CHECKING:
+    from .tree import Token, TokenOrContext, Context
+    from .language import Language
+    from .lexicon import Lexicon
+    from .treebuilder import TreeBuilder
 
-    .. py:property:: name
+P = ParamSpec("P")
 
-       (``Item[0]``) The name of the lexicon/transform method that was called.
-
-    .. py:property:: obj
-
-       (``Item[1]``) The return value of the transform method.
-
-    """
-    __slots__ = ()
+class Item(NamedTuple):
+    """A named tuple(name, obj) wrapping the return value of a Transform method."""
+    name: str
+    """The name of the lexicon/transform method that was called."""
+    obj: Any
+    """The return value of the transform method."""
 
     #: Class attribute to make it easier to distinguish tokens and Item instances.
     is_token = False
@@ -69,17 +75,17 @@ class ItemList(list):
     """
     __slots__ = ('_arg',)
 
-    def __init__(self, arg, iterable=()):
+    def __init__(self, arg: Optional[Any], iterable: Iterable[Item] = ()):
         """ItemList is initialized with the lexicon's argument."""
-        self._arg = arg
+        self._arg: Optional[Any] = arg
         super().__init__(iterable)
 
     @property
-    def arg(self):
+    def arg(self) -> Optional[Any]:
         """The lexicon's argument (if any)."""
         return self._arg
 
-    def tokens(self):
+    def tokens(self) -> Iterator[Token]:
         """Yield only the tokens, ignoring Item objects that represent
         sub-contexts.
 
@@ -88,7 +94,7 @@ class ItemList(list):
             if i.is_token:
                 yield i
 
-    def items(self):
+    def items(self) -> Iterator[Item]:
         """Yield only the Items, ignoring any Token instances.
 
         Because you know only Item instances and not Tokens will be yielded,
@@ -102,7 +108,7 @@ class ItemList(list):
             if not i.is_token:
                 yield i
 
-    def grouped_objects(self, *names):
+    def grouped_objects(self, *names: str) -> Iterator[List[Optional[Item]]]:
         """Yield objects in groups, specified by the names.
 
         The order remains the same. For example, when you have a stream of `key`
@@ -127,14 +133,12 @@ class ItemList(list):
         if lastindex > -1:
             yield result
 
-    def peek(self, index, *values):
+    def peek(self, index: int, *values: Any) -> bool:
         """Return True if the items from ``index`` compare equal with the
         ``values``.
 
         For tokens, the value is their action; for :class:`Item` instances
         their name. Negative indices are allowed.
-
-        .. versionadded:: 0.27.0
 
         """
         if index < 0:
@@ -151,12 +155,12 @@ class ItemList(list):
 class Transform:
     """This is the base class for a transform class.
 
-    Currently it has no special behaviour, but that might change in the future.
+    Currently, it has no special behaviour, but that might change in the future.
 
     """
 
 
-class Transformer(util.Observable):
+class Transformer(Observable):
     """Evaluate a tree.
 
     For every context, the transformer calls the corresponding method of the
@@ -184,18 +188,20 @@ class Transformer(util.Observable):
     """This format string creates the name to look for when searching a
     suitable Transform class in a Language module space (see
     :meth:`find_transform`).
-
-    .. versionadded:: 0.27.0
-
     """
 
     def __init__(self):
         super().__init__()
-        self._transforms = util.caching_dict(self.find_transform)
-        self._cache = weakref.WeakKeyDictionary()
-        self._interrupt = weakref.WeakKeyDictionary()
+        self._transforms: Dict[Language, Optional[Transform]] = caching_dict(self.find_transform)
+        self._cache: WeakKeyDictionary[TokenOrContext, Any] = WeakKeyDictionary()
+        self._interrupt: WeakKeyDictionary[Context, bool] = WeakKeyDictionary()
 
-    def transform_text(self, root_lexicon, text, pos=0):
+    def transform_text(
+        self,
+        root_lexicon: Optional[Lexicon],
+        text: str,
+        pos: int = 0
+    ) -> Optional[Any]:
         """Directly create an evaluated object from text using root_lexicon.
 
         The transform methods get intermediate tokens, but *no* tree is built
@@ -209,12 +215,12 @@ class Transformer(util.Observable):
         from parce.lexer import Event, Lexer
         from parce.target import Target
 
-        def make_target(pop, push):
+        def make_target(pop: int, push: Tuple[Lexicon, ...]) -> Optional[Target]:
             """Return a Target if pop < 0 or push is not empty."""
             if pop or push:
                 return Target(pop, push)
 
-        def build_tree(lexicons, events):
+        def build_tree(lexicons: Sequence[Lexicon], events: Iterable[Event]) -> Tuple[Context, Optional[Event]]:
             """Build a tree in case missing lexicons need to be handled.
 
             Returns the tree and the next event (if any), with adapted pop
@@ -224,7 +230,7 @@ class Transformer(util.Observable):
             tree = context = Context(lexicons[0], None)
             for lexicon in lexicons[1:]:
                 context = Context(lexicon, context)
-                context.parent.append(context)
+                context.parent.append(context)  # type: ignore - parent is not None here - SP
             for target, lexemes in events:
                 if target:
                     for pop in range(target.pop, 0):
@@ -233,11 +239,12 @@ class Transformer(util.Observable):
                         context = context.parent
                     for lexicon in target.push:
                         context = Context(lexicon, context)
-                        context.parent.append(context)
+                        context.parent.append(context)  # type: ignore - parent is not None here - SP
+                assert context is not None  # for type checker - SP
                 context.extend(make_tokens(lexemes, context))
             return tree, None
 
-        def consume_events(lexicons, events):
+        def consume_events(lexicons: Sequence[Lexicon], events: Iterable[Event]) -> Optional[Event]:
             """Simply consume events until the first of the specified lexicons ends.
 
             Returns the next event, if any, with adapted pop value.
@@ -257,6 +264,7 @@ class Transformer(util.Observable):
         events = Lexer([root_lexicon]).events(text, pos)
         root_meth = getattr(transform, root_lexicon.name, None)
         if root_meth:
+            assert isinstance(root_meth, MethodType)  # for type checker - SP
             add_untransformed = _allow_untransformed(root_meth)
             items = ItemList(root_lexicon.arg)
             stack = []
@@ -274,6 +282,7 @@ class Transformer(util.Observable):
                             transform = self.get_transform(curlang)
                         meth = getattr(transform, l.name, None)
                         if meth:
+                            assert isinstance(meth, MethodType)  # for type checker - SP
                             stack.append((lexicon, items, meth, l.name, add_untransformed))
                             add_untransformed = _allow_untransformed(meth)
                             items = ItemList(l.arg)
@@ -297,7 +306,7 @@ class Transformer(util.Observable):
                 items = olditems
             return root_meth(items)
 
-    def transform_tree(self, tree):
+    def transform_tree(self, tree: Context) -> Optional[Any]:
         """Evaluate a tree structure."""
         self._interrupt[tree] = False
 
@@ -308,15 +317,18 @@ class Transformer(util.Observable):
         transform = self.get_transform(curlang)
         root_meth = getattr(transform, tree.lexicon.name, None)
         if root_meth:
+            assert isinstance(root_meth, MethodType)  # for type checker - SP
             add_untransformed = _allow_untransformed(root_meth)
             stack = []
             node, items, i = tree, ItemList(tree.lexicon.arg), 0
             while not self._interrupt[tree]:
+                assert node is not None # for type checker - SP
                 for i in range(i, len(node)):
                     n = node[i]
                     if n.is_token:
                         items.append(n)
                     else:
+                        n: Context  # for type checker - SP
                         # a context; do we have a method for it?
                         if curlang is not n.lexicon.language:
                             curlang = n.lexicon.language
@@ -325,6 +337,7 @@ class Transformer(util.Observable):
                         meth = getattr(transform, name, None)
                         # don't bother going in this context if there is no method
                         if meth:
+                            assert isinstance(meth, MethodType)  # for type checker - SP
                             try:
                                 items.append(Item(name, self._cache[n]))
                             except KeyError:
@@ -345,7 +358,7 @@ class Transformer(util.Observable):
                     else:
                         return root_meth(items)
 
-    def build(self, tree):
+    def build(self, tree: Context) -> None:
         """Called when a tree needs to be transformed.
 
         The default implementation iterates over :meth:`process` to perform
@@ -353,10 +366,10 @@ class Transformer(util.Observable):
         in a background thread.
 
         """
-        for stage in self.process(tree):
+        for _ in self.process(tree):
             pass
 
-    def process(self, tree):
+    def process(self, tree: Context) -> Iterator[str]:
         """Transform the tree and emit events.
 
         Updates the cached result if the transformation was not interrupted.
@@ -375,11 +388,11 @@ class Transformer(util.Observable):
         yield "done"
         self.emit("finished", tree)
 
-    def interrupt(self, tree):
+    def interrupt(self, tree: Context) -> None:
         """Tell the Transformer to stop transforming the specified tree."""
         self._interrupt[tree] = True
 
-    def result(self, tree):
+    def result(self, tree: Context) -> Optional[Any]:
         """Get the result of the transformed tree.
 
         Returns None if no result was yet created. Although this method
@@ -389,7 +402,7 @@ class Transformer(util.Observable):
         """
         return self._cache.get(tree)
 
-    def invalidate_node(self, node):
+    def invalidate_node(self, node: TokenOrContext) -> None:
         """Remove the transform results for this node and its ancestors
         from our cache.
 
@@ -397,10 +410,11 @@ class Transformer(util.Observable):
 
         """
         while node.parent:
+            assert node is not None  # for type checker - SP
             del self._cache[node]
             node = node.parent
 
-    def connect_treebuilder(self, builder):
+    def connect_treebuilder(self, builder: TreeBuilder) -> None:
         """Connect to the events of the TreeBuilder.
 
         This causes the Transformer to automatically update the transformation
@@ -411,13 +425,13 @@ class Transformer(util.Observable):
         builder.connect("finished", self.slot_update, prepend_self=True, priority=-1000)
         builder.connect("invalidate", self.invalidate_node)
 
-    def disconnect_treebuilder(self, builder):
+    def disconnect_treebuilder(self, builder: TreeBuilder) -> None:
         """Disconnects from the events of the TreeBuilder."""
         builder.disconnect("replace", self.slot_replace)
         builder.disconnect("finished", self.slot_update)
         builder.disconnect("invalidate", self.invalidate_node)
 
-    def slot_replace(self, builder):
+    def slot_replace(self, builder: TreeBuilder) -> None:
         """Called when the tree builder starts altering the tree.
 
         Interrupts a process if busy for that tree.
@@ -425,7 +439,7 @@ class Transformer(util.Observable):
         """
         self.interrupt(builder.root)
 
-    def slot_update(self, builder):
+    def slot_update(self, builder: TreeBuilder) -> None:
         """Called when the tree builder has finished building the tree.
 
         Starts a new transformation job for the tree.
@@ -433,7 +447,7 @@ class Transformer(util.Observable):
         """
         self.build(builder.root)
 
-    def get_transform(self, language):
+    def get_transform(self, language: Language) -> Optional[Transform]:
         """Return a Transform class instance for the specified language.
 
         May return None, if no Transform was added and none could be found.
@@ -441,7 +455,7 @@ class Transformer(util.Observable):
         """
         return self._transforms[language]
 
-    def add_transform(self, language, transform):
+    def add_transform(self, language: Language, transform: Optional[Transform]) -> None:
         """Add a Transform instance for the specified language.
 
         You may also specify None, to disable transformation for that language
@@ -450,7 +464,7 @@ class Transformer(util.Observable):
         """
         self._transforms[language] = transform
 
-    def find_transform(self, language):
+    def find_transform(self, language: Language) -> Optional[Transform]:
         """Try to find a Transform for the specified language definition.
 
         This is done by looking for a Transform subclass in the language's
@@ -465,12 +479,12 @@ class Transformer(util.Observable):
         added for the language.
 
         """
-        tf = util.language_sister_class(language, self.transform_name_template, Transform)
+        tf = language_sister_class(language, self.transform_name_template, Transform)
         if tf:
             return tf()
 
 
-def transform_tree(tree, transform=None):
+def transform_tree(tree: Context, transform: Optional[Transform] = None) -> Optional[Any]:
     """Convenience function that transforms tree using Transform.
 
     If you don't specify a Transform to use, *parce* tries to find one using
@@ -488,7 +502,12 @@ def transform_tree(tree, transform=None):
     return t.transform_tree(tree)
 
 
-def transform_text(root_lexicon, text, transform=None, pos=0):
+def transform_text(
+    root_lexicon: Lexicon,
+    text: str,
+    transform: Optional[Transform] = None,
+    pos: int = 0
+) -> Optional[Any]:
     """Convenience function that transforms text directly using Transform.
 
     If you don't specify a Transform to use, *parce* tries to find one using
@@ -506,7 +525,7 @@ def transform_text(root_lexicon, text, transform=None, pos=0):
     return t.transform_text(root_lexicon, text, pos)
 
 
-def add_untransformed(func):
+def add_untransformed(func: Callable[[P], Any]) -> Callable[[P], Any]:
     """Decorator to mark a Transform method with the 'add_untransformed' flag.
 
     When a :class:`Transform` method has this flag, child contexts of this
@@ -530,8 +549,6 @@ def add_untransformed(func):
     return func
 
 
-def _allow_untransformed(meth):
+def _allow_untransformed(meth: MethodType) -> bool:
     """Return True when the method wants the untransformed stuff."""
     return getattr(meth.__func__, "add_untransformed", False)
-
-
