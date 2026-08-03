@@ -415,11 +415,15 @@ class Token(Node):
         """Return True if the other Token has the same lexicons in the ancestors."""
         if other is self:
             return True
+        c1 = c2 = None
         for c1, c2 in zip(self.ancestors(), other.ancestors()):
             if c1 is c2:
                 return True
             elif c1.lexicon is not c2.lexicon:
                 return False
+        if c1 is None or c2 is None:
+            # one or both have no ancestors at all
+            return self.parent is None and other.parent is None
         return c1.parent is None and c2.parent is None
 
     def __repr__(self):
