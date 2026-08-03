@@ -85,18 +85,31 @@ And here's how the same text would translate to a tree structure::
 
 
 """
+from __future__ import annotations
 
+import re
 
-import collections
+from _collections_abc import Iterable, Iterator
+
+from typing import NamedTuple, TYPE_CHECKING
 
 from .ruleitem import ActionItem, Item
 from .target import TargetFactory, Target
 from .util import unroll
 
+if TYPE_CHECKING:
+    from parce.standardaction import StandardAction
+    from parce.lexicon import Lexicon
+    from parce.ruleitem import Item
 
-Event = collections.namedtuple("Event", "target lexemes")
-Event.target.__doc__ = "A :class:`~.target.Target` or None."
-Event.lexemes.__doc__ = "One or more ``(pos, text, action)`` tuples."
+type Lexeme = tuple[int, str, StandardAction]
+
+class Event(NamedTuple):
+    """A target change and the lexemes that were lexed with it."""
+    target: Target | None
+    """A :class:`~.target.Target` or None."""
+    lexemes: tuple[Lexeme, ...]
+    """One or more ``(pos, text, action)`` tuples."""
 
 
 class Lexer:
@@ -110,22 +123,22 @@ class Lexer:
     attribute reflects the current state: the current lexicon is at the end.
 
     """
-    def __init__(self, lexicons):
+    def __init__(self, lexicons: Iterable[Lexicon]) -> None:
         """Lexicons should be an iterable of one or more lexicons."""
         self.lexicons = list(lexicons)
 
-    def events(self, text, pos=0):
+    def events(self, text: str, pos: int = 0) -> Iterator[Event]:
         """Get the events from parsing text from the specified position."""
         lexicons = self.lexicons
         target_factory = TargetFactory()
         get_target = target_factory.get # access methods directly (faster)
         add_target = target_factory.add
-        circular = set()
+        circular: set[tuple[int, int, int]] = set()
 
-        def event():
+        def event() -> Iterator[Event]:
             # yield Event, all vars are nonlocal :-)
             if isinstance(action, ActionItem):
-                lexemes = tuple(action.replace(self, pos, txt, match))
+                lexemes = tuple(action.replace(self, pos, txt, match))  # type: ignore[attr-defined] # subclasses of ActionItem define replace()
                 if lexemes:
                     yield Event(get_target(), lexemes)
             else:
@@ -171,11 +184,17 @@ class Lexer:
             else:
                 break   # done
 
-    def filter_actions(self, action, pos, text, match):
+    def filter_actions(
+        self,
+        action: Item | StandardAction,
+        pos: int,
+        text: str,
+        match: re.Match[str] | None
+    ) -> Iterator[Lexeme]:
         """Handle filtering via DynamicAction instances."""
         if isinstance(action, Item):
             if isinstance(action, ActionItem):
-                yield from action.replace(self, pos, text, match)
+                yield from action.replace(self, pos, text, match)  # type: ignore[attr-defined] # subclasses of ActionItem define replace()
             else:
                 for action in unroll(action.evaluate({'text': text, 'match': match})):
                     yield from self.filter_actions(action, pos, text, match)
