@@ -485,7 +485,7 @@ class AbstractElement:
         """Implement to yield our children."""
         yield from ()
 
-    def get_child_count():
+    def get_child_count(self):
         """Implement to return the number of children."""
         return 0
 
