@@ -355,6 +355,10 @@ class ActionItem(PostponedItem):
     """Mixin base class for dynamic actions."""
     __slots__ = ()
 
+    def replace(self, lexer, pos, text, match):
+        """Yield ``(pos, text, action)`` tuples for the match."""
+        raise NotImplementedError
+
 
 class SubgroupAction(ActionItem):
     """Yield actions from subgroups in a match.
