@@ -22,23 +22,41 @@
 Helper functions and classes for the :mod:`~parce.treebuilder` module.
 
 """
+from __future__ import annotations
 
+from _collections_abc import Iterator, Sequence
+
+from typing import Any, Literal, NamedTuple, TYPE_CHECKING
 
 import collections
 import itertools
 
 from . import util
 from .lexer import Event, Lexer
-from .tree import Context, Range
+from .tree import Context, Range, Token
 from .target import TargetFactory
 
+if TYPE_CHECKING:
+    from parce.lexicon import Lexicon
+    from parce.tree import Node
 
-#: encapsulates the return values of :meth:`TreeBuilder.build_new_tree`
-BuildResult = collections.namedtuple("BuildResult", "tree start end offset lexicons")
+type RootLexicon = Lexicon | Literal[False] | None
 
-#: encapsulates the return values of :meth:`TreeBuilder.replace_tree`
-ReplaceResult = collections.namedtuple("ReplaceResult", "start end lexicons")
 
+class BuildResult(NamedTuple):
+    """Encapsulates the return values of :meth:`TreeBuilder.build_new_tree`."""
+    tree: Context
+    start: int
+    end: int
+    offset: int
+    lexicons: list[Lexicon] | None
+
+
+class ReplaceResult(NamedTuple):
+    """Encapsulates the return values of :meth:`TreeBuilder.replace_tree`."""
+    start: int
+    end: int
+    lexicons: list[Lexicon]
 
 class Changes:
     """Store changes that have to be made to a tree.
@@ -48,16 +66,16 @@ class Changes:
     :meth:`add()` merges new changes with the existing changes.
 
     """
-    __slots__ = "text", "root_lexicon", "start", "removed", "added"
+    __slots__ = ("text", "root_lexicon", "start", "removed", "added")
 
-    def __init__(self):
-        self.text = ""
-        self.root_lexicon = False   # meaning no change is requested
-        self.start = -1          # meaning no text is altered
-        self.removed = 0
-        self.added = 0
+    def __init__(self) -> None:
+        self.text: str = ""
+        self.root_lexicon: RootLexicon = False  # meaning no change is requested
+        self.start: int = -1                    # meaning no text is altered
+        self.removed: int = 0
+        self.added: int = 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         changes = []
         if self.root_lexicon != False:
             changes.append("root_lexicon: {}".format(self.root_lexicon))
@@ -67,7 +85,14 @@ class Changes:
             changes.append("(no changes)")
         return "<Changes {}>".format(', '.join(changes))
 
-    def add(self, text, root_lexicon=False, start=0, removed=None, added=None):
+    def add(
+        self,
+        text: str,
+        root_lexicon: RootLexicon = False,
+        start: int =0,
+        removed: int | None = None,
+        added: int | None = None
+    ) -> None:
         """Merge new change with existing changes.
 
         If added and removed are not given, all text after start is
@@ -103,11 +128,11 @@ class Changes:
         self.removed += removed + offset
         self.added += added + offset
 
-    def has_changes(self):
+    def has_changes(self) -> bool:
         """Return True when there are actually changes."""
         return self.start != -1 or self.root_lexicon != False
 
-    def new_position(self, pos):
+    def new_position(self, pos: int) -> int:
         """Return how the current changes would affect an older start."""
         if pos < self.start:
             return pos
@@ -116,11 +141,16 @@ class Changes:
         return pos - self.removed + self.added
 
 
-def get_prepared_lexer(tree, text, start, new_tree=False):
+def get_prepared_lexer(
+    tree: Context,
+    text: str,
+    start: int,
+    new_tree: bool = False
+) -> tuple[Lexer, Iterator[Event], tuple[Token, ...]] | None:
     """Get a prepared lexer reading from text, positioned at (or before) start.
 
     Returns the three-tuple (lexer, events, tokens). The events stream is
-    returned seperately because the last Event can be pushed back, so it is
+    returned separately because the last Event can be pushed back, so it is
     yielded again. The tokens are the last tokens group that remained the same.
 
     Returns None when no position to start can be found, just start from the
@@ -131,9 +161,10 @@ def get_prepared_lexer(tree, text, start, new_tree=False):
     avoids leaving empty contexts in the build tree that should not be there.
 
     """
-    last_token = start_token = find_token_before(tree, start)
+    last_token = find_token_before(tree, start)
     if not last_token:
-        return
+        return None
+    start_token = last_token
     go_back = backward(last_token)
     if last_token.group is not None and last_token.group >= 0:
         # we are in the middle of a group
@@ -141,7 +172,7 @@ def get_prepared_lexer(tree, text, start, new_tree=False):
             if last_token.group is None or last_token.group < 0:
                 break
         else:
-            return
+            return None
 
     while start:
         # go back at least 10 tokens, to the beginning of a group; and don't
@@ -151,6 +182,7 @@ def get_prepared_lexer(tree, text, start, new_tree=False):
         count = 10
         for start_token in go_back:
             for next_token in go_back:
+                assert start_token.parent is not None
                 if start_token.group is None and not (start_token.is_first() and start_token.parent.lexicon.consume):
                     count -= 1
                     if count == 0:
@@ -161,7 +193,7 @@ def get_prepared_lexer(tree, text, start, new_tree=False):
         if start:
             lexer = get_lexer(start_token)
         elif new_tree:
-            return
+            return None
         else:
             lexer = Lexer([tree.lexicon])
         events = lexer.events(text, start)
@@ -178,9 +210,10 @@ def get_prepared_lexer(tree, text, start, new_tree=False):
         else:
             if prev:
                 return lexer, events, prev
+    return None
 
 
-def events_with_tokens(start_token, last_token):
+def events_with_tokens(start_token: Token, last_token: Token) -> Iterator[tuple[Event, tuple[Token, ...]]]:
     r"""Yield (Event, tokens) tuples for start_token until and including last_token.
 
     Events are yielded together with token groups (or single tokens in a
@@ -203,10 +236,10 @@ def events_with_tokens(start_token, last_token):
         target = TargetFactory()
         get, push, pop = target.get, target.push, target.pop
 
-        def events(nodes):
-            stack = []
+        def events(nodes: Sequence[Node]) -> Iterator[tuple[Event, tuple[Token, ...]]]:
+            stack: list[int] = []
             i = 0
-            n = nodes
+            n: Any = nodes  # a slice of a Context, or a Context itself
             while True:
                 z = len(n)
                 while i < z:
@@ -236,6 +269,7 @@ def events_with_tokens(start_token, last_token):
                     else:
                         break
 
+        assert start_token.parent is not None, "start_token must have a parent context"
         if start_token.is_first() and not start_token.parent.is_root() \
                 and not any(backward(start_token)):
             # start token is the very first token, but it is not in the root
@@ -248,17 +282,19 @@ def events_with_tokens(start_token, last_token):
             yield from events(context[slice_])
 
 
-def get_lexer(token):
+def get_lexer(token: Token) -> Lexer:
     """Get a Lexer initialized at the token's ancestry."""
     lexicons = [p.lexicon for p in token.ancestors()]
     lexicons.reverse()
     return Lexer(lexicons)
 
 
-def new_tree(token):
+def new_tree(token: Token) -> tuple[Context, Context]:
     """Return an empty context (and its root) with the same ancestry as the token's."""
-    c = n = context = Context(token.parent.lexicon, None)
-    for p in token.parent.ancestors():
+    parent = token.parent
+    assert parent is not None, "token must have a parent context"
+    c = n = context = Context(parent.lexicon, None)
+    for p in parent.ancestors():
         n = Context(p.lexicon, None)
         c.parent = n
         n.append(c)
@@ -266,7 +302,7 @@ def new_tree(token):
     return context, n
 
 
-def find_token_before(node, pos):
+def find_token_before(node: Context, pos: int) -> Token | None:
     """A version of :meth:`Context.find_token_before()
     <parce.tree.Context.find_token_before>` that can handle empty contexts.
 
@@ -289,13 +325,14 @@ def find_token_before(node, pos):
             else:
                 i = mid + 1
         if i == 0:
-            return
+            return None
         node = node[i-1]
         if node.is_token:
+            assert isinstance(node, Token), "node must be a Token if is_token is True"
             return node
 
 
-def ancestors_with_index(node):
+def ancestors_with_index(node: Node) -> Iterator[tuple[Context, int]]:
     """A version of :meth:`Node.ancestors_with_index()
     <parce.tree.Node.ancestors_with_index>` that can handle empty contexts.
 
@@ -306,7 +343,7 @@ def ancestors_with_index(node):
         yield node, index
 
 
-def backward(node):
+def backward(node: Node) -> Iterator[Token]:
     """A version of :meth:`Node.backward() <parce.tree.Node.backward>` that can
     handle empty contexts.
 
@@ -316,15 +353,20 @@ def backward(node):
             yield from util.tokens(node[:index], True)
 
 
-def common_ancestor_with_trail(node, other):
+def common_ancestor_with_trail(
+    node: Node,
+    other: Node
+) -> tuple[Context | None, Sequence[int] | None, Sequence[int] | None]:
     """A version of :meth:`Token.common_ancestor_with_trail()
     <parce.tree.Token.common_ancestor_with_trail>` that can handle empty
     contexts.
 
     """
     if other is node:
-        i = node.parent.index(node)
-        return node.parent, (i,), (i,)
+        parent = node.parent
+        assert parent is not None, "node must have a parent context"
+        i = parent.index(node)
+        return parent, (i,), (i,)
     if other.pos > node.pos:
         s_ancestors, s_indices = zip(*ancestors_with_index(node))
         o_indices = []
@@ -338,7 +380,7 @@ def common_ancestor_with_trail(node, other):
     return None, None, None
 
 
-def same_events(e1, e2):
+def same_events(e1: Event, e2: Event) -> bool:
     """Compare Event tuples in a robust way.
 
     Returns True if the events are completely the same. The lexicon in a target
@@ -353,6 +395,7 @@ def same_events(e1, e2):
         return True
     # both targets compare equal, and have a non-empty push value that compares
     # equal, so now we only need to compare the lexicons on identity.
+    assert e2.target is not None, "e2.target must not be None if e1.target is not None"
     return all(l1 is l2 for l1, l2 in zip(e1.target.push, e2.target.push))
 
 
