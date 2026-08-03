@@ -568,7 +568,7 @@ class LilyPond(Language):
         if extra_target:
             # count the arguments of markup commands and stack markup contexts
             yield RE_LILYPOND_COMMAND, cls.get_markup_action(), \
-                select(call(cls.get_markup_argument_count, MATCH[1]), -1, 0, 1, 2, 3)
+                select(call(cls.get_markup_argument_count, MATCH[1]), -1, 0, 1, 2, 3, 4)
         else:
             # in an environment; no need to count the arguments.
             yield RE_LILYPOND_COMMAND, cls.get_markup_action()
