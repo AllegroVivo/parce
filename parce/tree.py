@@ -46,18 +46,22 @@ current context.
 """
 from __future__ import annotations
 
-from typing import Literal, TYPE_CHECKING, Callable, ClassVar
+from _collections_abc import Iterator, Sequence
 
-import itertools
+from typing import Literal, Self, TYPE_CHECKING, Callable, ClassVar, Type, cast
+
 import reprlib
 import weakref
 
 from parce import util
-from parce import query
+from parce.query import Query
 from parce.lexicon import Lexicon
 
 if TYPE_CHECKING:
     from parce.standardaction import StandardAction
+    from _typeshed import SupportsWrite
+    from parce.lexicon import Lexicon
+    from .target import TargetFactory
 
 
 DUMP_STYLES = {
@@ -72,6 +76,9 @@ DUMP_STYLES = {
 DumpStyle = Literal["ascii", "round", "square", "double", "thick", "flat"]
 DUMP_STYLE_DEFAULT = "round"
 
+type ContextOrToken = Context | Token
+type MaybeContext = Context | None
+type MaybeToken = Token | None
 
 class Node:
     """Methods that are shared by Token and Context."""
@@ -80,28 +87,34 @@ class Node:
     is_token: ClassVar[bool] = False
     is_context: ClassVar[bool] = False
 
-    _parent: Callable[[], Context | None]
+    _parent: Callable[[], MaybeContext]
+    pos: int
 
     @property
-    def parent(self) -> Context | None:
+    def parent(self) -> MaybeContext:
         """The parent Context (or None; uses a weak reference)."""
         return self._parent()
 
     @parent.setter
-    def parent(self, parent: Context | None) -> None:
+    def parent(self, parent: MaybeContext) -> None:
         """Set the parent (to a Context or None)."""
-        self._parent = weakref.ref(parent) if parent is not None else lambda: None  # type: ignore[misc]
+        self._parent = weakref.ref(parent) if parent is not None else lambda: None
 
     @parent.deleter
     def parent(self) -> None:
         """Set the parent to None."""
-        self._parent = lambda: None  # type: ignore[misc]
+        self._parent = lambda: None
 
-    def copy(self, parent: Context | None = None) -> Node:
+    def copy(self, parent: MaybeContext = None) -> Self:
         """Return a copy of the Node, but with the specified parent."""
         raise NotImplementedError
 
-    def dump(self, file=None, style=None, depth=0):
+    def dump(
+        self,
+        file: SupportsWrite[str] | None = None,
+        style: DumpStyle | None = None,
+        depth: int = 0
+    ) -> None:
         """Display a graphical representation of the node and its contents.
 
         The file object defaults to stdout, and the style to "round". You can
@@ -111,20 +124,22 @@ class Node:
         i = 2
         d = DUMP_STYLES[style or DUMP_STYLE_DEFAULT]
         prefix = []
-        node = self
+        node: Node = self
         for _ in range(depth):
             prefix.append(d[i + int(node.is_last())])
-            node = node.parent
+            parent = node.parent
+            assert parent is not None, "depth exceeds ancestor count"
+            node = parent
             i = 0
         print("".join(reversed(prefix)) + repr(self), file=file)
-        if self.is_context:
+        if isinstance(self, Context):
             for n in self:
                 n.dump(file, style, depth + 1)
 
     @property
-    def pwd(self):
+    def pwd(self) -> None:
         """Show the ancestry, for debugging purposes."""
-        nodes = [self]
+        nodes: list[Node] = [self]
         nodes.extend(self.ancestors())
         nodes.reverse()
         d = DUMP_STYLES[DUMP_STYLE_DEFAULT]
@@ -133,10 +148,10 @@ class Node:
                 d[1] * max(0, n-1),
                 d[3] if n else '',
                 repr(node),
-                " [{}]".format(nodes[n-1].index(node)) if n else '',
+                " [{}]".format(cast("Context", nodes[n-1]).index(node)) if n else '',
             )))
 
-    def parent_index(self):
+    def parent_index(self) -> int:
         """Return our index in the parent.
 
         This is recommended above using parent.index(self), because this method
@@ -146,6 +161,7 @@ class Node:
 
         """
         p = self.parent
+        assert p is not None, "not valid on the root node"
         pos = self.pos
         lo = 0
         hi = len(p)
@@ -160,62 +176,62 @@ class Node:
                 hi = mid
         return lo
 
-    def root(self):
+    def root(self) -> Node:
         """Return the root node."""
         root = self
         for root in self.ancestors():
             pass
         return root
 
-    def is_last(self):
+    def is_last(self) -> bool:
         """Return True if this Node is the last child of its parent.
 
         Fails if called on the root element.
 
         """
-        return self.parent[-1] is self
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        return parent[-1] is self
 
-    def is_first(self):
+    def is_first(self) -> bool:
         """Return True if this Node is the first child of its parent.
 
         Fails if called on the root element.
 
         """
-        return self.parent[0] is self
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        return parent[0] is self
 
-    def is_ancestor_of(self, node):
+    def is_ancestor_of(self, node: Node) -> bool:
         """Return True if this Node is an ancestor of the other Node."""
         for n in node.ancestors():
             if n is self:
                 return True
         return False
 
-    def ancestors(self, upto=None):
+    def ancestors(self, upto: MaybeContext = None) -> Iterator[Context]:
         """Climb the tree up over the parents.
 
-        If upto is given and it is one of the ancestors, stop after yielding
-        that ancestor. Otherwise iteration stops at the root node.
+        If upto is given, and it is one of the ancestors, stop after yielding
+        that ancestor. Otherwise, iteration stops at the root node.
 
         """
-        node = self.parent
-        if upto and upto.parent is not None:
-            p = upto.parent
-            while node is not None and node is not p:
-                yield node
-                node = node.parent
-        else:
-            while node is not None:
-                yield node
-                node = node.parent
+        node: MaybeContext = self.parent
+        stop = upto.parent if upto and upto.parent is not None else None
+        while node is not None and node is not stop:
+            assert node is not None, "not valid on the root node"
+            yield node
+            node = node.parent
 
-    def ancestors_with_index(self, upto=None):
+    def ancestors_with_index(self, upto: MaybeContext = None) -> Iterator[tuple[Context, int]]:
         """Yield the ancestors(upto), and the index of each node in the parent."""
         n = self
         for p in self.ancestors(upto):
             yield p, n.parent_index()
             n = p
 
-    def common_ancestor(self, other):
+    def common_ancestor(self, other: ContextOrToken) -> Node | None:
         """Return the common ancestor with the Context or Token."""
         ancestors = []
         if self.is_context:
@@ -226,66 +242,78 @@ class Node:
         for n in other.ancestors():
             if n in ancestors:
                 return n
+        return None
 
-    def depth(self):
+    def depth(self) -> int:
         """Return the number of ancestors."""
-        return sum(1 for n in self.ancestors())
+        return sum(1 for _ in self.ancestors())
 
-    def left_sibling(self):
+    def left_sibling(self) -> Node | None:
         """Return the left sibling of this node, if any.
 
         Does not descend in child nodes or ascend upto the parent.
         Fails if called on the root node.
 
         """
-        if self.parent[0] is not self:
-            i = self.parent_index()
-            return self.parent[i-1]
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        if parent[0] is not self:
+            return parent[self.parent_index() - 1]
+        return None
 
-    def right_sibling(self):
+    def right_sibling(self) -> Node | None:
         """Return the right sibling of this node, if any.
 
         Does not descend in child nodes or ascend upto the parent.
         Fails if called on the root node.
 
         """
-        if self.parent[-1] is not self:
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        if parent[-1] is not self:
             i = self.parent_index()
-            return self.parent[i+1]
+            return parent[i+1]
+        return None
 
-    def left_siblings(self):
+    def left_siblings(self) -> Iterator[Node]:
         """Yield the left siblings of this node in reverse order, if any.
 
         Does not descend in child nodes or ascend upto the parent.
         Fails if called on the root node.
 
         """
-        if self.parent[0] is not self:
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        if parent[0] is not self:
             i = self.parent_index()
-            yield from self.parent[i-1::-1]
+            yield from parent[i-1::-1]
 
-    def right_siblings(self):
+    def right_siblings(self) -> Iterator[Node]:
         """Yield the right siblings of this node, if any.
 
         Does not descend in child nodes or ascend upto the parent.
         Fails if called on the root node.
 
         """
-        if self.parent[-1] is not self:
+        parent = self.parent
+        assert parent is not None, "not valid on the root node"
+        if parent[-1] is not self:
             i = self.parent_index()
-            yield from self.parent[i+1:]
+            yield from parent[i+1:]
 
-    def next_token(self):
+    def next_token(self) -> MaybeToken:
         """Return the following Token, if any."""
         for t in self.forward():
             return t
+        return None
 
-    def previous_token(self):
+    def previous_token(self) -> MaybeToken:
         """Return the preceding Token, if any."""
         for t in self.backward():
             return t
+        return None
 
-    def forward(self, upto=None):
+    def forward(self, upto: MaybeContext = None) -> Iterator[Token]:
         """Yield all Tokens in forward direction, starting at the right sibling.
 
         Descends into child Contexts, and ascends into parent Contexts.
@@ -295,7 +323,7 @@ class Node:
         for parent, index in self.ancestors_with_index(upto):
             yield from util.tokens(parent[index+1:])
 
-    def backward(self, upto=None):
+    def backward(self, upto: MaybeContext = None) -> Iterator[Token]:
         """Yield all Tokens in backward direction, starting at the left sibling.
 
         Descends into child Contexts, and ascends into parent Contexts.
@@ -307,13 +335,13 @@ class Node:
                 yield from util.tokens(parent[:index], True)
 
     @property
-    def query(self):
+    def query(self) -> Query:
         """Query this node in different ways; see the :mod:`~parce.query` module."""
-        def gen():
+        def gen() -> Iterator[Node]:
             yield self
-        return query.Query(gen)
+        return Query(gen)
 
-    def delete(self):
+    def delete(self) -> MaybeContext:
         """Remove this node from its parent.
 
         If the parent would become empty, it is removed too.
@@ -324,6 +352,7 @@ class Node:
             del parent[index]
             if len(parent):
                 return parent
+        return None
 
 
 class Token(Node):
@@ -390,24 +419,24 @@ class Token(Node):
 
     is_token = True     #: Always True for Token
 
-    def __init__(self, parent: Context, pos: int, text: str, action: StandardAction) -> None:
+    def __init__(self, parent: MaybeContext, pos: int, text: str, action: StandardAction) -> None:
         self.parent = parent                    #: The Context node to which the token was added
         self.pos: int = pos                     #: The position in the original text
         self.text: str = text                   #: The text of this token
         self.action: StandardAction = action    #: The action specified by the lexicon rule that created the token
 
     @property
-    def end(self):
+    def end(self) -> int:
         """The end position of this token in the original text."""
         return self.pos + len(self.text)
 
-    group = None        #: Always None for Token, an integer for :class:`GroupToken`
+    group: int | None = None        #: Always None for Token, an integer for :class:`GroupToken`
 
-    def copy(self, parent=None):
+    def copy(self, parent: MaybeContext = None) -> Self:
         """Return a copy of the Token, but with the specified parent."""
         return type(self)(parent, self.pos, self.text, self.action)
 
-    def equals(self, other):
+    def equals(self, other: Token) -> bool:
         """Return True if the other Token has the same ``text`` and ``action``
         attributes and the same context ancestry (see also
         :meth:`state_matches`).
@@ -419,57 +448,64 @@ class Token(Node):
                 and self.action == other.action
                 and self.state_matches(other))
 
-    def state_matches(self, other):
+    def state_matches(self, other: Token) -> bool:
         """Return True if the other Token has the same lexicons in the ancestors."""
         if other is self:
             return True
+        c1: MaybeContext = None
+        c2: MaybeContext = None
         for c1, c2 in zip(self.ancestors(), other.ancestors()):
             if c1 is c2:
                 return True
             elif c1.lexicon is not c2.lexicon:
                 return False
+        if c1 is None or c2 is None:
+            return self.parent is None and other.parent is None
         return c1.parent is None and c2.parent is None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         text = reprlib.repr(self.text)
         return "<Token {} at {}:{} ({})>".format(text, self.pos, self.end, self.action)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return Node.__hash__(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, str):
             return other == self.text
         return other is self
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         if isinstance(other, str):
             return other != self.text
         return other is not self
 
-    def __format__(self, formatstr):
+    def __format__(self, formatstr: str) -> str:
         return self.text.__format__(formatstr)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.text)
 
-    def forward_including(self, upto=None):
+    def forward_including(self, upto: MaybeContext = None) -> Iterator[Token]:
         """Yield all tokens in forward direction, including self."""
         yield self
         yield from self.forward(upto)
 
-    def backward_including(self, upto=None):
+    def backward_including(self, upto: MaybeContext = None) -> Iterator[Token]:
         """Yield all tokens in backward direction, including self."""
         yield self
         yield from self.backward(upto)
 
-    def forward_until_including(self, other):
+    def forward_until_including(self, other: Token) -> Iterator[Token]:
         """Yield all tokens starting with us and upto and including the other."""
         r = self.range(other)
         if r:
             yield from r.tokens()
 
-    def common_ancestor_with_trail(self, other):
+    def common_ancestor_with_trail(
+        self,
+        other: Token
+    ) -> tuple[MaybeContext, Sequence[int] | None, Sequence[int] | None]:
         """Return a three-tuple(context, trail_self, trail_other).
 
         The context is the common ancestor such as returned by common_ancestor,
@@ -497,7 +533,7 @@ class Token(Node):
                 return n, s_indices[s_i::-1], o_indices[::-1]
         return None, None, None
 
-    def range(self, other):
+    def range(self, other: Token) -> Range | None:
         """Return a :class:`Range` from this token upto and including the other.
 
         Returns None if the other :class:`Token` does not belong to the same
@@ -507,6 +543,7 @@ class Token(Node):
         context, start_trail, end_trail = self.common_ancestor_with_trail(other)
         if context:
             return Range(context, start_trail, end_trail)
+        return None
 
 
 class GroupToken(Token):
@@ -526,26 +563,38 @@ class GroupToken(Token):
     deleted from the tree, and when the tokens really have a parent.
 
     """
-    __slots__ = "group",
+    __slots__ = ("group",)
 
-    def __init__(self, group, parent, pos, text, action):
-        self.group = group  #: The index of this token in a group (negated for the last token in a group)
+    def __init__(
+        self,
+        group: int,
+        parent: MaybeContext,
+        pos: int,
+        text: str,
+        action: StandardAction
+    ):
+        self.group: int = group  #: The index of this token in a group (negated for the last token in a group)
         super().__init__(parent, pos, text, action)
 
-    def copy(self, parent=None):
+    def copy(self, parent: MaybeContext = None) -> Self:
         """Return a copy of the Token, but with the specified parent."""
         return type(self)(self.group, parent, self.pos, self.text, self.action)
 
     @classmethod
-    def make_group(cls, parent, lexemes):
+    def make_group(
+        cls,
+        parent: MaybeContext,
+        lexemes: Sequence[tuple[int, str, StandardAction]],
+    ) -> tuple[Self, ...]:
         """Create a tuple of GroupTokens for the lexemes."""
         group = tuple(cls(n, parent, *t) for n, t in enumerate(lexemes))
         group[-1].group *= -1
         return group
 
-    def get_group(self):
+    def get_group(self) -> list[GroupToken]:
         """Return the whole group this token belongs to as a list."""
         p = self.parent
+        assert p is not None, "not valid on the root node"
         i = j = self.parent_index()
         z = len(p) - 1
         if self.group < 0:
@@ -558,18 +607,21 @@ class GroupToken(Token):
                 j += 1
         return p[i:j+1]
 
-    def get_group_start(self):
+    def get_group_start(self) -> Token:
         """Return the first token of the group this token belongs to."""
+        p = self.parent
+        assert p is not None, "not valid on the root node"
         i = self.parent_index()
         if self.group < 0:
             i += self.group
         else:
             i -= self.group
-        return self.parent[i]
+        return p[i]
 
-    def get_group_end(self):
+    def get_group_end(self) -> Token:
         """Return the last token of the group this token belongs to."""
         p = self.parent
+        assert p is not None, "not valid on the root node"
         i = self.parent_index()
         z = len(p) - 1
         if self.group >= 0:
@@ -579,7 +631,7 @@ class GroupToken(Token):
         return p[i]
 
 
-class Context(list, Node):  # type: ignore[misc] - only works while Node adds no data slots
+class Context(list, Node):  # type: ignore[misc]  # only works while Node adds no data slots
     """A Context represents a list of tokens and contexts.
 
     The lexicon that created the tokens is in the `lexicon` attribute.
@@ -587,7 +639,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
     If a pattern rule jumps to another lexicon, a sub-Context is created and
     tokens are added there. If that lexicon pops back to the current one, new
     tokens can appear after the sub-context. (So the token that caused the jump
-    to the sub-context normally preceeds the context it created.)
+    to the sub-context normally precedes the context it created.)
 
     A context has a `parent` attribute, which can point to an enclosing
     context. The root context has `parent` None.
@@ -616,18 +668,20 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
     might be in any sub-context of the current context.
 
     """
-    __slots__ = "lexicon", "_parent"
+    __slots__ = ("lexicon", "_parent")
 
     is_context = True   #: Always True for Context
 
-    def __new__(cls, lexicon, parent):
+    def __new__(cls, lexicon: Lexicon, parent: Context) -> Self:
         return list.__new__(cls)
 
-    def __init__(self, lexicon, parent):
+    def __init__(self, lexicon: Lexicon, parent: MaybeContext) -> None:
         self.lexicon = lexicon  #: The lexicon this context was instantiated with.
         self.parent = parent
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        pos: int | str
+        end: int | str
         pos, end = self.pos, self.end
         if pos == end:
             pos = end = "?" # both are 0 in this case: empty Context
@@ -636,30 +690,31 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
         return "<Context {} at {}-{} ({} {})>".format(
             name, pos, end, len(self), children)
 
-    def __hash__(self):
+    def __hash__(self) -> int:  # type: ignore[override]  # list is unhashable; Context hashes by identity
         return Node.__hash__(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, Lexicon):
             return self.lexicon == other
         return other is self
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         if isinstance(other, Lexicon):
             return self.lexicon != other
         return other is not self
 
     @property
-    def ls(self):
+    def ls(self) -> None:
         """List the contents of this Context, for debugging purposes."""
         for i, n in enumerate(self):
             print("[{}] {}".format(i, repr(n)))
 
-    def copy(self, parent=None):
+    def copy(self, parent: MaybeContext = None) -> Self:
         """Return a copy of the context, but with the specified parent."""
         # a non-recursive implementation due to Python's recursion limits
-        copy = copy_root = type(self)(self.lexicon, parent)
-        n = self
+        copy_root = type(self)(self.lexicon, parent)
+        copy: Context = copy_root
+        n: Context = self
         i = 0
         while True:
             z = len(n)
@@ -677,13 +732,14 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             else:
                 if copy is copy_root:
                     break
-                n = n.parent
-                copy = copy.parent
+                parent_n, parent_copy = n.parent, copy.parent
+                assert parent_n is not None and parent_copy is not None
+                n, copy = parent_n, parent_copy
                 i = len(copy)
         return copy_root
 
     @property
-    def pos(self):
+    def pos(self) -> int:  # type: ignore[override]  # Token stores pos; Context computes it
         """Return the position or our first token. Returns 0 if empty."""
         try:
             node = self[0]
@@ -694,7 +750,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             return 0
 
     @property
-    def end(self):
+    def end(self) -> int:
         """Return the end position or our last token. Returns 0 if empty."""
         try:
             node = self[-1]
@@ -704,11 +760,11 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
         except IndexError:
             return 0
 
-    def is_root(self):
+    def is_root(self) -> bool:
         """Return True if this Context has no parent node."""
         return self.parent is None
 
-    def height(self):
+    def height(self) -> int:
         """Return the height of the tree (the longest distance to a descendant)."""
         if not self:
             return 0
@@ -727,12 +783,14 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                     break
             else:
                 if stack:
-                    n = n.parent
+                    parent = n.parent
+                    assert parent is not None, "not callable on the root context"
+                    n = parent
                     i = stack.pop() + 1
                 else:
                     return height + 1
 
-    def tokens(self, reverse=False):
+    def tokens(self, reverse: bool = False) -> Iterator[Token]:
         """Yield all Tokens, descending into nested Contexts.
 
         If ``reverse`` is set to True, yield all tokens in backward direction.
@@ -755,7 +813,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 else:
                     break
 
-    def first_token(self):
+    def first_token(self) -> MaybeToken:
         """Return our first Token."""
         try:
             node = self[0]
@@ -763,9 +821,9 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 node = node[0]
             return node
         except IndexError:
-            pass
+            return None
 
-    def last_token(self):
+    def last_token(self) -> MaybeToken:
         """Return our last token."""
         try:
             node = self[-1]
@@ -773,9 +831,9 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 node = node[-1]
             return node
         except IndexError:
-            pass
+            return None
 
-    def find(self, pos):
+    def find(self, pos: int) -> int:
         """Return the index of our child at (or to the right of) pos.
 
         Returns -1 if there is no such child.
@@ -792,8 +850,8 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 hi = mid
         return -1 if i == l else i
 
-    def find_context(self, pos):
-        """Return the younghest Context at position (or self)."""
+    def find_context(self, pos: int) -> Context:
+        """Return the youngest Context at position (or self)."""
         node = self
         i = self.find(pos)
         if i != -1:
@@ -803,7 +861,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 n = n[n.find(pos)]
         return node
 
-    def find_token(self, pos):
+    def find_token(self, pos: int) -> MaybeToken:
         """Return the Token at or to the right of position.
 
         Returns None if there is no such token.
@@ -815,8 +873,9 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             while n.is_context:
                 n = n[n.find(pos)]
             return n
+        return None
 
-    def find_token_with_trail(self, pos):
+    def find_token_with_trail(self, pos: int) -> tuple[Token | None, list[int] | None]:
         """Return the Token at or to the right of position, and the trail of indices.
 
         The trail is the list of indices where the token was found. Returns
@@ -841,7 +900,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             return n, trail
         return None, None
 
-    def find_left(self, pos):
+    def find_left(self, pos: int) -> int:
         """Return the index of our child at or to the left of pos.
 
         Returns -1 if there is no such child.
@@ -858,7 +917,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 hi = mid
         return i - 1
 
-    def find_token_left(self, pos):
+    def find_token_left(self, pos: int) -> MaybeToken:
         """Return the Token at or to the left of position.
 
         Returns None if there is no such token.
@@ -870,8 +929,9 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             while n.is_context:
                 n = n[n.find_left(pos)]
             return n
+        return None
 
-    def find_token_left_with_trail(self, pos):
+    def find_token_left_with_trail(self, pos: int) -> tuple[Token | None, list[int] | None]:
         """Return the Token at or to the left of position, and the trail of indices.
 
         Returns (None, None) if there is no such token.
@@ -888,7 +948,7 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
             return n, trail
         return None, None
 
-    def find_token_after(self, pos):
+    def find_token_after(self, pos: int) -> MaybeToken:
         """Return the first token completely right from pos.
 
         Returns None if there is no token right from pos.
@@ -908,12 +968,12 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 else:
                     hi = mid
             if i >= l:
-                return
+                return None
             node = node[i]
             if node.is_token:
                 return node
 
-    def find_token_before(self, pos):
+    def find_token_before(self, pos: int) -> MaybeToken:
         """Return the last token completely left from pos.
 
         Returns None if there is no token left from pos.
@@ -933,12 +993,12 @@ class Context(list, Node):  # type: ignore[misc] - only works while Node adds no
                 else:
                     i = mid + 1
             if i == 0:
-                return
+                return None
             node = node[i-1]
             if node.is_token:
                 return node
 
-    def range(self, start=0, end=None):
+    def range(self, start: int = 0, end: int | None = None) -> Range | None:
         """Return a :class:`Range`.
 
         The ancestor of the range is the common ancestor of the tokens found at
@@ -960,16 +1020,21 @@ class Range:
     the range encompasses the full context.
 
     """
-    def __init__(self, ancestor, start_trail=None, end_trail=None):
-        self.ancestor = ancestor                #: The specified ancestor
-        self.start_trail = start_trail or []    #: The specified start trail (empty list by default)
-        self.end_trail = end_trail or []        #: The specified end trail (empty list by default)
+    def __init__(
+        self,
+        ancestor: Context,
+        start_trail: Sequence[int] | None = None,
+        end_trail: Sequence[int] | None = None,
+    ):
+        self.ancestor: Context = ancestor                       #: The specified ancestor
+        self.start_trail: Sequence[int] = start_trail or []     #: The specified start trail (empty list by default)
+        self.end_trail: Sequence[int] = end_trail or []         #: The specified end trail (empty list by default)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<{} {} [{}:{}]>".format(type(self).__name__, self.ancestor.lexicon, self.pos, self.end)
 
     @property
-    def pos(self):
+    def pos(self) -> int:
         """The position of the first token in our range."""
         n = self.ancestor
         for i in self.start_trail:
@@ -977,7 +1042,7 @@ class Range:
         return n.pos
 
     @property
-    def end(self):
+    def end(self) -> int:
         """The end position of the last token in our range."""
         n = self.ancestor
         for i in self.end_trail:
@@ -985,7 +1050,7 @@ class Range:
         return n.end
 
     @classmethod
-    def from_tree(cls, tree, start=0, end=None):
+    def from_tree(cls, tree: Context, start: int=0, end: int | None=None) -> Self | None:
         """Create a Range.
 
         The ancestor is the common ancestor of the tokens found at start and
@@ -997,20 +1062,20 @@ class Range:
 
         """
         if not tree:
-            return # empty
+            return None  # empty
         context = tree
         if end is not None and end < tree.end:
             if end <= start:
-                return
+                return None
             end_trail = tree.find_token_left_with_trail(end)[1]
             if not end_trail:
-                return
+                return None
         else:
             end_trail = []
         if start > 0:
             start_trail = tree.find_token_with_trail(start)[1]
             if not start_trail:
-                return
+                return None
             if end_trail:
                 # find the youngest common ancestor
                 for n, (i, j) in enumerate(zip(start_trail, end_trail)):
@@ -1024,7 +1089,7 @@ class Range:
             start_trail = []
         return cls(context, start_trail, end_trail)
 
-    def slices(self, target_factory=None):
+    def slices(self, target_factory: TargetFactory | None = None) -> Iterator[tuple[Context, slice]]:
         """Yield (context, slice) tuples.
 
         The yielded slices include the tokens at the end of start and end
@@ -1067,7 +1132,7 @@ class Range:
         else:
             yield self.ancestor, slice(start, None)
 
-    def tokens(self):
+    def tokens(self) -> Iterator[Token]:
         """Yield all tokens in this range.
 
         The first and last tokens may overlap with the start and end positions.
@@ -1078,7 +1143,10 @@ class Range:
 
 
 
-def make_tokens(lexemes, parent=None):
+def make_tokens(
+    lexemes: Sequence[tuple[int, str, StandardAction]],
+    parent: MaybeContext = None
+) -> tuple[Token | GroupToken, ...]:
     """Factory returning a tuple of one or more :class:`Token` instances for
     the lexemes.
 
