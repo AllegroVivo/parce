@@ -44,7 +44,9 @@ necessary for that. To find a token at a certain position in a context, use
 current context.
 
 """
+from __future__ import annotations
 
+from typing import Literal, TYPE_CHECKING, Callable, ClassVar
 
 import itertools
 import reprlib
@@ -54,6 +56,9 @@ from parce import util
 from parce import query
 from parce.lexicon import Lexicon
 
+if TYPE_CHECKING:
+    from parce.standardaction import StandardAction
+
 
 DUMP_STYLES = {
     "ascii":   (" | ", "   ", " |-", " `-"),
@@ -61,9 +66,10 @@ DUMP_STYLES = {
     "square":  (" │ ", "   ", " ├╴", " └╴"),
     "double":  (" ║ ", "   ", " ╠═", " ╚═"),
     "thick":   (" ┃ ", "   ", " ┣╸", " ┗╸"),
-    "flat":    ("│", " ", "├", "╰"),
+    "flat":    ( "│",   " ",   "├",   "╰"),
 }
 
+DumpStyle = Literal["ascii", "round", "square", "double", "thick", "flat"]
 DUMP_STYLE_DEFAULT = "round"
 
 
@@ -71,25 +77,27 @@ class Node:
     """Methods that are shared by Token and Context."""
     __slots__ = ('__weakref__',)
 
-    is_token = False
-    is_context = False
+    is_token: ClassVar[bool] = False
+    is_context: ClassVar[bool] = False
+
+    _parent: Callable[[], Context | None]
 
     @property
-    def parent(self):
+    def parent(self) -> Context | None:
         """The parent Context (or None; uses a weak reference)."""
         return self._parent()
 
     @parent.setter
-    def parent(self, parent):
+    def parent(self, parent: Context | None) -> None:
         """Set the parent (to a Context or None)."""
-        self._parent = weakref.ref(parent) if parent is not None else lambda: None
+        self._parent = weakref.ref(parent) if parent is not None else lambda: None  # type: ignore[misc]
 
     @parent.deleter
-    def parent(self):
+    def parent(self) -> None:
         """Set the parent to None."""
-        self._parent = lambda: None
+        self._parent = lambda: None  # type: ignore[misc]
 
-    def copy(self, parent=None):
+    def copy(self, parent: Context | None = None) -> Node:
         """Return a copy of the Node, but with the specified parent."""
         raise NotImplementedError
 
@@ -378,15 +386,15 @@ class Token(Node):
 
     """
 
-    __slots__ = "_parent", "pos", "text", "action"
+    __slots__ = ("_parent", "pos", "text", "action")
 
     is_token = True     #: Always True for Token
 
-    def __init__(self, parent, pos, text, action):
-        self.parent = parent    #: The Context node to which the token was added
-        self.pos = pos          #: The position in the original text
-        self.text = text        #: The text of this token
-        self.action = action    #: The action specified by the lexicon rule that created the token
+    def __init__(self, parent: Context, pos: int, text: str, action: StandardAction) -> None:
+        self.parent = parent                    #: The Context node to which the token was added
+        self.pos: int = pos                     #: The position in the original text
+        self.text: str = text                   #: The text of this token
+        self.action: StandardAction = action    #: The action specified by the lexicon rule that created the token
 
     @property
     def end(self):
@@ -571,7 +579,7 @@ class GroupToken(Token):
         return p[i]
 
 
-class Context(list, Node):
+class Context(list, Node):  # type: ignore[misc] - only works while Node adds no data slots
     """A Context represents a list of tokens and contexts.
 
     The lexicon that created the tokens is in the `lexicon` attribute.
