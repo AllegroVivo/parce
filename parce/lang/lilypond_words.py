@@ -1478,6 +1478,42 @@ pitch_names = {
         "b-natural": (-1, 6, NATURAL),
         "b-sharp": (-1, 6, SHARP),
         "b-sharpsharp": (-1, 6, DOUBLE_SHARP),
+
+        # Unhyphenated long names were valid in LilyPond <= 2.19.16
+        "cflatflat": (-1, 0, DOUBLE_FLAT),
+        "cflat": (-1, 0, FLAT),
+        "csharp": (-1, 0, SHARP),
+        "csharpsharp": (-1, 0, DOUBLE_SHARP),
+
+        "dflatflat": (-1, 1, DOUBLE_FLAT),
+        "dflat": (-1, 1, FLAT),
+        "dsharp": (-1, 1, SHARP),
+        "dsharpsharp": (-1, 1, DOUBLE_SHARP),
+
+        "eflatflat": (-1, 2, DOUBLE_FLAT),
+        "eflat": (-1, 2, FLAT),
+        "esharp": (-1, 2, SHARP),
+        "esharpsharp": (-1, 2, DOUBLE_SHARP),
+
+        "fflatflat": (-1, 3, DOUBLE_FLAT),
+        "fflat": (-1, 3, FLAT),
+        "fsharp": (-1, 3, SHARP),
+        "fsharpsharp": (-1, 3, DOUBLE_SHARP),
+
+        "gflatflat": (-1, 4, DOUBLE_FLAT),
+        "gflat": (-1, 4, FLAT),
+        "gsharp": (-1, 4, SHARP),
+        "gsharpsharp": (-1, 4, DOUBLE_SHARP),
+
+        "aflatflat": (-1, 5, DOUBLE_FLAT),
+        "aflat": (-1, 5, FLAT),
+        "asharp": (-1, 5, SHARP),
+        "asharpsharp": (-1, 5, DOUBLE_SHARP),
+
+        "bflatflat": (-1, 6, DOUBLE_FLAT),
+        "bflat": (-1, 6, FLAT),
+        "bsharp": (-1, 6, SHARP),
+        "bsharpsharp": (-1, 6, DOUBLE_SHARP),
     },
     "espanol": {
         "dobb": (-1, 0, DOUBLE_FLAT),
