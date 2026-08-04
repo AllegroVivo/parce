@@ -29,10 +29,17 @@ manager protocol), the modifications (that may not overlap then) are only
 applied when the context exits for the last time.
 
 """
+from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
+from types import TracebackType
+from typing import TYPE_CHECKING, Self
 
 import collections
 import reprlib
+
+if TYPE_CHECKING:
+    from parce._types import IntOrSlice, ChangeTuple
 
 
 class AbstractMutableString:
@@ -61,38 +68,43 @@ class AbstractMutableString:
       character
 
     """
-    def __init__(self, text=""):
-        self._edit_context = 0
-        self._changes = collections.defaultdict(list)
+    def __init__(self, text: str = "") -> None:
+        self._edit_context: int = 0
+        self._changes: dict[int, list[tuple[int, str]]] = collections.defaultdict(list)
 
-    def text(self):
+    def text(self) -> str:
         """Should return the text contents."""
         raise NotImplementedError
 
-    def set_text(self, text):
+    def set_text(self, text: str) -> None:
         """Set the text contents."""
         if self._edit_context != 0:
             raise RuntimeError("can't use set_text() in edit context.")
         self[:] = text
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         text = reprlib.repr(self.text())
         return "<{} {}>".format(type(self).__name__, text)
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Return the text contents."""
         return self.text()
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the length of the text."""
         return len(self.text())
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Start the context for modifying the document."""
         self._edit_context += 1
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType
+    ) -> None:
         """Exit the context for modifying."""
         if exc_type is not None:
             # cancel all edits when an exception occurred
@@ -104,20 +116,20 @@ class AbstractMutableString:
             self._edit_context = 0
             self._apply_changes()
 
-    def __iadd__(self, text):
+    def __iadd__(self, text: str) -> Self:
         """Implement the += operator."""
         self.append(text)
         return self
 
-    def __add__(self, text):
+    def __add__(self, text: str) -> str:
         """Implement the + operator. Returns a new, plain str instance."""
         return self.text() + text
 
-    def __radd__(self, text):
+    def __radd__(self, text: str) -> str:
         """Implement the + operator. Returns a new, plain str instance."""
         return text + self.text()
 
-    def __setitem__(self, key, text):
+    def __setitem__(self, key: IntOrSlice, text: str) -> None:
         """Replace the position or slice with text."""
         start, end = self._parse_key(key)
         if ((text or start != end) and
@@ -126,11 +138,11 @@ class AbstractMutableString:
             if not self._edit_context:
                 self._apply_changes()
 
-    def __delitem__(self, key):
-        """Delete the chracter or slice of text."""
+    def __delitem__(self, key: IntOrSlice) -> None:
+        """Delete the character or slice of text."""
         self[key] = ""
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: IntOrSlice) -> str:
         """Get a character or a slice of text."""
         start, end = self._parse_key(key)
         if start == end:
@@ -139,7 +151,7 @@ class AbstractMutableString:
             return self.text()
         return self._get_text(start, end)
 
-    def _parse_key(self, key):
+    def _parse_key(self, key: IntOrSlice) -> tuple[int, int]:
         """Get start and end values from key. Called by __[gs]etitem__."""
         total = len(self)
         if isinstance(key, slice):
@@ -155,7 +167,7 @@ class AbstractMutableString:
             end = start
         return start, end
 
-    def _get_text(self, start, end):
+    def _get_text(self, start: int, end: int) -> str:
         """Return the selected range of the text.
 
         Called by __getitem__(), only if a fragment was requested.
@@ -163,7 +175,7 @@ class AbstractMutableString:
         """
         return self.text()[start:end]
 
-    def _apply_changes(self):
+    def _apply_changes(self) -> None:
         """(Internal.) Check, sort and apply the changes."""
         if self._changes:
             changes = list(self._get_changes())
@@ -176,11 +188,11 @@ class AbstractMutableString:
             self._changes.clear()
             self.text_changed(head, end - head, added)
 
-    def _get_changes(self):
+    def _get_changes(self) -> Iterator[tuple[int, int, str]]:
         """(Internal.) Yield the changes.
 
         Every change is a three-tuple(start, end, text).
-        Overlapping changes are signalled and raise a RuntimeError.
+        Overlapping changes are signaled and raise a RuntimeError.
 
         """
         positions = sorted(self._changes)
@@ -193,7 +205,7 @@ class AbstractMutableString:
             end = max(end for end, text in c)
             yield start, end, text
 
-    def _update_text(self, changes):
+    def _update_text(self, changes: Sequence[ChangeTuple]) -> None:
         """Called to apply the changes to the text.
 
         The changes is a sorted list of (start, end, text) tuples.
@@ -201,32 +213,32 @@ class AbstractMutableString:
         """
         raise NotImplementedError
 
-    def append(self, text):
+    def append(self, text: str) -> None:
         """Append text at the end of the document."""
         self.insert(len(self), text)
 
-    def insert(self, pos, text):
+    def insert(self, pos: int, text: str) -> None:
         """Insert text at pos."""
         self[pos:pos] = text
 
-    def text_changed(self, position, removed, added):
+    def text_changed(self, position: int, removed: int, added: int) -> None:
         """Called after ``_update_text()``. The default implementation does nothing."""
         pass
 
 
 class MutableString(AbstractMutableString):
     """A Mutable string, storing the string contents in an internal attribute."""
-    def __init__(self, text=""):
+    def __init__(self, text: str = "") -> None:
         super().__init__()
-        self._text = text
+        self._text: str = text
 
-    def text(self):
+    def text(self) -> str:
         """Return the text."""
         return self._text
 
-    def _update_text(self, changes):
+    def _update_text(self, changes: Sequence[ChangeTuple]) -> None:
         """Apply the changes to the text."""
-        def generate_text():
+        def generate_text() -> Iterator[str]:
             tail = 0
             for start, end, text in changes:
                 if start > tail:

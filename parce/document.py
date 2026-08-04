@@ -39,7 +39,9 @@ You can use the various ``find_block()`` and ``blocks()`` methods to iterate
 over a Document on a line-by-line basis.
 
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
 import contextlib
 import itertools
@@ -50,6 +52,8 @@ import weakref
 from . import mutablestring
 from . import util
 
+if TYPE_CHECKING:
+    pass
 
 class AbstractDocument(mutablestring.AbstractMutableString):
     """Base class for a Document.
