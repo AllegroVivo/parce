@@ -10,7 +10,10 @@ if TYPE_CHECKING:
 type RootLexicon = Lexicon | Literal[False] | None
 type Lexeme = tuple[int, str, StandardAction]
 type ContextOrToken = Context | Token
+type ChangeTuple = tuple[int, int, str]
 
 type MaybeContext = Context | None
 type MaybeToken = Token | None
 type MaybeLexicon = Lexicon | None
+
+type IntOrSlice = int | slice
