@@ -91,13 +91,12 @@ import re
 from collections.abc import Iterable, Iterator
 from typing import NamedTuple, TYPE_CHECKING
 
-from .ruleitem import ActionItem
+from .ruleitem import ActionItem, Item
 from .target import Target, TargetFactory
 from .util import unroll
 
 if TYPE_CHECKING:
     from parce.lexicon import Lexicon
-    from parce.ruleitem import Item
     from parce._types import Lexeme
     from parce.standardaction import StandardAction
 
