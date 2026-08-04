@@ -46,7 +46,7 @@ current context.
 """
 from __future__ import annotations
 
-from _collections_abc import Iterator, Sequence
+from collections.abc import Iterator, Sequence
 
 from typing import Literal, Self, TYPE_CHECKING, Callable, ClassVar, Type, cast
 
@@ -61,7 +61,8 @@ if TYPE_CHECKING:
     from parce.standardaction import StandardAction
     from _typeshed import SupportsWrite
     from parce.lexicon import Lexicon
-    from .target import TargetFactory
+    from parce.target import TargetFactory
+    from parce._types import ContextOrToken, MaybeContext, MaybeToken, MaybeLexicon
 
 
 DUMP_STYLES = {
@@ -76,9 +77,6 @@ DUMP_STYLES = {
 DumpStyle = Literal["ascii", "round", "square", "double", "thick", "flat"]
 DUMP_STYLE_DEFAULT = "round"
 
-type ContextOrToken = Context | Token
-type MaybeContext = Context | None
-type MaybeToken = Token | None
 
 class Node:
     """Methods that are shared by Token and Context."""
@@ -675,8 +673,8 @@ class Context(list, Node):  # type: ignore[misc]  # only works while Node adds n
     def __new__(cls, lexicon: Lexicon, parent: Context) -> Self:
         return list.__new__(cls)
 
-    def __init__(self, lexicon: Lexicon, parent: MaybeContext) -> None:
-        self.lexicon = lexicon  #: The lexicon this context was instantiated with.
+    def __init__(self, lexicon: MaybeLexicon, parent: MaybeContext) -> None:
+        self.lexicon: MaybeLexicon = lexicon  #: The lexicon this context was instantiated with.
         self.parent = parent
 
     def __repr__(self) -> str:

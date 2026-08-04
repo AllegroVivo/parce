@@ -24,9 +24,9 @@ Helper functions and classes for the :mod:`~parce.treebuilder` module.
 """
 from __future__ import annotations
 
-from _collections_abc import Iterator, Sequence
+from collections.abc import Iterator, Sequence
 
-from typing import Any, Literal, NamedTuple, TYPE_CHECKING
+from typing import Any, Literal, NamedTuple, TYPE_CHECKING, cast
 
 import collections
 import itertools
@@ -39,8 +39,7 @@ from .target import TargetFactory
 if TYPE_CHECKING:
     from parce.lexicon import Lexicon
     from parce.tree import Node
-
-type RootLexicon = Lexicon | Literal[False] | None
+    from parce._types import RootLexicon
 
 
 class BuildResult(NamedTuple):
@@ -56,7 +55,7 @@ class ReplaceResult(NamedTuple):
     """Encapsulates the return values of :meth:`TreeBuilder.replace_tree`."""
     start: int
     end: int
-    lexicons: list[Lexicon]
+    lexicons: list[Lexicon]  | None
 
 class Changes:
     """Store changes that have to be made to a tree.
@@ -183,7 +182,11 @@ def get_prepared_lexer(
         for start_token in go_back:
             for next_token in go_back:
                 assert start_token.parent is not None
-                if start_token.group is None and not (start_token.is_first() and start_token.parent.lexicon.consume):
+                if start_token.group is None and not (
+                    start_token.is_first()
+                    and start_token.parent.lexicon is not None
+                    and start_token.parent.lexicon.consume
+                ):
                     count -= 1
                     if count == 0:
                         start = start_token.pos
@@ -195,6 +198,7 @@ def get_prepared_lexer(
         elif new_tree:
             return None
         else:
+            assert tree.lexicon is not None
             lexer = Lexer([tree.lexicon])
         events = lexer.events(text, start)
         # compare the new events with the old tokens; at least one
@@ -284,7 +288,7 @@ def events_with_tokens(start_token: Token, last_token: Token) -> Iterator[tuple[
 
 def get_lexer(token: Token) -> Lexer:
     """Get a Lexer initialized at the token's ancestry."""
-    lexicons = [p.lexicon for p in token.ancestors()]
+    lexicons = cast("list[Lexicon]", [p.lexicon for p in token.ancestors()])
     lexicons.reverse()
     return Lexer(lexicons)
 

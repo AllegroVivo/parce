@@ -88,21 +88,18 @@ And here's how the same text would translate to a tree structure::
 from __future__ import annotations
 
 import re
-
-from _collections_abc import Iterable, Iterator
-
+from collections.abc import Iterable, Iterator
 from typing import NamedTuple, TYPE_CHECKING
 
-from .ruleitem import ActionItem, Item
-from .target import TargetFactory, Target
+from .ruleitem import ActionItem
+from .target import Target, TargetFactory
 from .util import unroll
 
 if TYPE_CHECKING:
-    from parce.standardaction import StandardAction
     from parce.lexicon import Lexicon
     from parce.ruleitem import Item
-
-type Lexeme = tuple[int, str, StandardAction]
+    from parce._types import Lexeme
+    from parce.standardaction import StandardAction
 
 class Event(NamedTuple):
     """A target change and the lexemes that were lexed with it."""
