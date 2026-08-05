@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from parce.tree import Context, Token
     from parce.lexicon import Lexicon
     from parce.standardaction import StandardAction
+    from parce.document import AbstractTextRange
 
 type RootLexicon = Lexicon | Literal[False] | None
 type Lexeme = tuple[int, str, StandardAction]
@@ -17,3 +18,4 @@ type MaybeToken = Token | None
 type MaybeLexicon = Lexicon | None
 
 type IntOrSlice = int | slice
+type DocumentKey = IntOrSlice | AbstractTextRange

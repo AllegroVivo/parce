@@ -31,15 +31,14 @@ applied when the context exits for the last time.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from types import TracebackType
-from typing import TYPE_CHECKING, Self
-
 import collections
 import reprlib
+from collections.abc import Iterator, Sequence
+from types import TracebackType
+from typing import Self, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from parce._types import IntOrSlice, ChangeTuple
+    from parce._types import ChangeTuple, IntOrSlice
 
 
 class AbstractMutableString:
