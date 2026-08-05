@@ -670,16 +670,23 @@ def fix_boundaries(stream, start, end):
                 i = type(i)((i[0], end, *i[2:]))
             yield i
 
+def _tuple(*args):
+    """Return the arguments as a tuple.
 
-def merge_adjacent(stream, factory=tuple):
+    This is the ideal default factory for merge_adjacent().
+
+    """
+    return args
+
+def merge_adjacent(stream, factory=_tuple):
     """Yield items from a stream of tuples.
 
     The first two items of each tuple are regarded as pos and end.
     If they are adjacent, and the rest of the tuples compares the same,
     the items are merged.
 
-    Instead of the default factory `tuple`, you can give a named tuple
-    or any other type to wrap the streams items in.
+    Instead of the default factory, which yields plain tuples, you can give a
+    named tuple or any other type to wrap the streams items in.
 
     """
     stream = iter(stream)
