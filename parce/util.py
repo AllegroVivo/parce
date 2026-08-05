@@ -723,10 +723,18 @@ def fix_boundaries(stream: Iterable[Any], start: int, end: int | None) -> Iterat
                 i = type(i)((i[0], end, *i[2:]))
             yield i
 
+def _tuple(*args: Any) -> tuple[Any, ...]:
+    """Return the arguments as a tuple.
+
+    This is the ideal default factory for merge_adjacent().
+
+    """
+    return args
+
 
 def merge_adjacent(
     stream: Iterable[Any],
-    factory: Callable[..., Any] = tuple
+    factory: Callable[..., Any] = _tuple
 ) -> Iterator[Any]:
     """Yield items from a stream of tuples.
 
@@ -734,8 +742,8 @@ def merge_adjacent(
     If they are adjacent, and the rest of the tuples compares the same,
     the items are merged.
 
-    Instead of the default factory `tuple`, you can give a named tuple
-    or any other type to wrap the streams items in.
+    Instead of the default factory, which yields plain tuples, you can give a
+    named tuple or any other type to wrap the streams items in.
 
     """
     stream = iter(stream)
