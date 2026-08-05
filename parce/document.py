@@ -41,19 +41,22 @@ over a Document on a line-by-line basis.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from _collections_abc import Iterable
 
 import contextlib
 import itertools
 import re
 import reprlib
 import weakref
+from collections.abc import Callable, Iterator, Mapping
+from parce.work import WorkerDocumentMixin
+from typing import Self, Sequence, TYPE_CHECKING, cast
 
-from . import mutablestring
-from . import util
+from . import mutablestring, util
 
 if TYPE_CHECKING:
-    pass
+    from parce._types import DocumentKey, ChangeTuple
+    from parce.tree import Token
 
 class AbstractDocument(mutablestring.AbstractMutableString):
     """Base class for a Document.
@@ -62,28 +65,37 @@ class AbstractDocument(mutablestring.AbstractMutableString):
     :class:`Block`.
 
     """
-    url = None       #: can be set to the url this document is loaded from
-    encoding = None  #: can be set to the encoding used to read/write this document
-    modified = False #: Whether this document is modified
+    url: str | None = None       #: can be set to the url this document is loaded from
+    encoding: str | None = None  #: can be set to the encoding used to read/write this document
+    modified: bool = False       #: Whether this document is modified
 
-    block_separator = '\n'  #: separator to use for block boundaries (newline)
+    block_separator: str = '\n'  #: separator to use for block boundaries (newline)
 
-    def __init__(self, text="", url=None, encoding=None):
+    def __init__(self, text: str = "", url: str | None = None, encoding: str | None = None):
         mutablestring.AbstractMutableString.__init__(self)
-        self._cursors = weakref.WeakSet()
-        self._revision = 0
+        self._cursors: weakref.WeakSet[Cursor] = weakref.WeakSet()
+        self._revision: int = 0
         if url:
             self.url = url
         if encoding:
             self.encoding = encoding
 
-    def _parse_key(self, key):
+    def __getitem__(self, key: DocumentKey) -> str:
+        return super().__getitem__(key)  # type: ignore[index]  # this _parse_key accepts ranges
+
+    def __setitem__(self, key: DocumentKey, text: str) -> None:
+        super().__setitem__(key, text)  # type: ignore[index]
+
+    def __delitem__(self, key: DocumentKey) -> None:
+        super().__delitem__(key)  # type: ignore[arg-type]
+
+    def _parse_key(self, key: DocumentKey) -> tuple[int, int]:
         """Get start and end values from key. Called by __[gs]etitem__."""
         if isinstance(key, AbstractTextRange):
             key = slice(key.pos, key.end)
         return super()._parse_key(key)
 
-    def _update_cursors(self, changes):
+    def _update_cursors(self, changes: Sequence[ChangeTuple]) -> None:
         """Update the positions of the cursors."""
         i = 0
         cursors = sorted(self._cursors, key = lambda c: c.pos)
@@ -101,15 +113,15 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                     else:
                         c.end += start + len(text) - end
                 elif not ahead:
-                    i += 1  # don't consider this cursor any more
+                    i += 1  # don't consider this cursor anymore
 
-    def _update_text(self, changes):
+    def _update_text(self, changes: Sequence[ChangeTuple]) -> None:
         """Apply the changes to the text, reimplemented here to also update the Cursor positions."""
         self._update_cursors(changes)
         self._revision += 1
         self.modified = True
 
-    def revision(self):
+    def revision(self) -> int:
         """Return the revision number.
 
         This number is incremented by one on every document change.
@@ -117,18 +129,18 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         """
         return self._revision
 
-    def find_start_of_block(self, position):
+    def find_start_of_block(self, position: int) -> int:
         """Find the start of the block the position is in."""
         sep = self.block_separator
         pos = self.text().rfind(sep, 0, position)
         return 0 if pos == -1 else pos + len(sep)
 
-    def find_end_of_block(self, position):
+    def find_end_of_block(self, position: int) -> int:
         """Find the end of the block the position is in."""
         pos = self.text().find(self.block_separator, position)
         return len(self) if pos == -1 else pos
 
-    def find_block(self, position):
+    def find_block(self, position: int) -> Block:
         """Return a :class:`Block` representing the text line (block) at
         position.
 
@@ -140,7 +152,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         end = self.find_end_of_block(pos)
         return Block(self, pos, end)
 
-    def find_block_by_number(self, number):
+    def find_block_by_number(self, number: int) -> Block | None:
         """Return the :class:`Block` for text line ``number``.
 
         The first block has number 0. Returns None when the document has less
@@ -160,7 +172,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
             end = -l
             for n in range(number + 1):
                 if end == len(text):
-                    return
+                    return None
                 pos = end + l
                 end = text.find(sep, pos)
                 if end == -1:
@@ -171,14 +183,14 @@ class AbstractDocument(mutablestring.AbstractMutableString):
             pos = len(text) + l
             for n in range(number, 0):
                 if pos == 0:
-                    return
+                    return None
                 end = pos - l
                 pos = text.rfind(sep, 0, end)
                 pos = 0 if pos == -1 else pos + l
             block = Block(self, pos, end)
         return block
 
-    def block_count(self):
+    def block_count(self) -> int:
         """Return the number of blocks (lines) in this document.
 
         This counts the number of occurrences of :attr:`block_separator` in the
@@ -193,13 +205,13 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         """
         return self.text().count(self.block_separator) + 1
 
-    def blocks(self, start=0, end=None):
+    def blocks(self, start: int = 0, end: int | None = None) -> Iterator[Block]:
         """Yield Blocks, starting at position start, ending at end.
 
         Start defaults to 0, end to None, which means iterate to the last block.
 
         """
-        block = self.find_block(start)
+        block: Block | None = self.find_block(start)
         if end is None:
             while block:
                 yield block
@@ -211,7 +223,14 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                 if not block or block.pos >= end:
                     break
 
-    def replace(self, old, new, start=0, end=None, count=0):
+    def replace(
+        self,
+        old: str,
+        new: str,
+        start: int = 0,
+        end: int | None = None,
+        count: int = 0
+    ) -> None:
         """Replace occurrences of old with new in region start->end.
 
         If count > 0, specifies the maximum number of occurrences to be
@@ -231,7 +250,15 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                 if count == 0:
                     break
 
-    def re_sub(self, pattern, replacement, start=0, end=None, count=0, re_flags=0):
+    def re_sub(
+        self,
+        pattern: str | re.Pattern[str],
+        replacement: str | Callable[[re.Match[str]], str],
+        start: int = 0,
+        end: int | None = None,
+        count: int = 0,
+        re_flags: int | re.RegexFlag = 0
+    ) -> None:
         """Replace regular expression matches of pattern with replacement.
 
         The pattern may be a string or a compiled regexp pattern object.
@@ -239,12 +266,12 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         If count > 0, specifies the maximum number of occurrences to be
         replaced.
 
-        The replacement argument can also be a funtion, which is then called
+        The replacement argument can also be a function, which is then called
         with the match object and should return the replacement string.
 
         With start and end the range can be specified, and, if the pattern was
         a string it is compiled to a regular expression object using the
-        speficied re_flags.
+        specified re_flags.
 
         """
         if isinstance(pattern, str):
@@ -258,11 +285,18 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                 if i == count:
                     break
 
-    def trim(self, start=0, end=None):
+    def trim(self, start: int = 0, end: int | None = None) -> None:
         """Remove trialing whitespace in the specified region."""
         self.re_sub(r'[ \t]+$', '', start, end, re_flags=re.MULTILINE)
 
-    def translate(self, mapping, start=0, end=None, count=0, whole_words=False):
+    def translate(
+        self,
+        mapping: Mapping[str, str],
+        start: int = 0,
+        end: int | None = None,
+        count: int = 0,
+        whole_words: bool = False
+    ) -> None:
         """Replace every occurrence of a key in mapping with its value.
 
         If whole_words is True, only match the keys at word boundaries.
@@ -275,7 +309,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         repl = lambda m: mapping[m.group()]
         self.re_sub(expr, repl, start, end, count)
 
-    def text_changed(self, position, removed, added):
+    def text_changed(self, position: int, removed: int, added: int) -> None:
         """Called after ``_update_text()``.
 
         The default implementation does nothing.
@@ -283,6 +317,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
         """
         pass
 
+type UndoRedoAction = list[Sequence[ChangeTuple] | bool]
 
 class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
     """A basic Document with undo and modified status.
@@ -312,26 +347,26 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
         emitted when the availability of :meth:`redo` changes.
 
     """
-    _in_undo = util.Switch()
-    _in_redo = util.Switch()
+    _in_undo: util.Switch = util.Switch()
+    _in_redo: util.Switch = util.Switch()
 
-    undo_redo_enabled = True
+    undo_redo_enabled: bool = True
 
-    def __init__(self, text="", url=None, encoding=None):
+    def __init__(self, text: str = "", url: str | None = None, encoding: str | None = None):
         AbstractDocument.__init__(self, text, url, encoding)
         mutablestring.MutableString.__init__(self, text)
         util.Observable.__init__(self)
-        self._modified = False
-        self._undo_stack = []
-        self._redo_stack = []
+        self._modified: bool = False
+        self._undo_stack: list[UndoRedoAction] = []
+        self._redo_stack: list[UndoRedoAction] = []
 
     @property
-    def modified(self):
+    def modified(self) -> bool:
         """Read or set whether the text is modified, happens automatically normally."""
         return self._modified
 
     @modified.setter
-    def modified(self, modified):
+    def modified(self, modified: bool) -> None:
         if not (self._in_undo or self._in_redo):
             changed = modified != self._modified
             self._modified = modified
@@ -340,7 +375,7 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
             if changed:
                 self.emit("modification_changed", modified)
 
-    def _update_text(self, changes):
+    def _update_text(self, changes: Sequence[ChangeTuple]) -> None:
         """Apply the changes to the text."""
         with self._check_undo_state():
             if self.undo_redo_enabled:
@@ -348,9 +383,9 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
             AbstractDocument._update_text(self, changes)
             mutablestring.MutableString._update_text(self, changes)
 
-    def _reverse_changes(self, changes):
+    def _reverse_changes(self, changes: Sequence[ChangeTuple]) -> list[tuple[int, int, str]]:
         """Return the changes that would be needed to undo the given list of changes."""
-        def reverse_changes():
+        def reverse_changes() -> Iterator[ChangeTuple]:
             head = 0
             current_text = self.text()
             for start, end, text in changes:
@@ -359,9 +394,9 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
                 head += len(text) - end
         return list(reverse_changes())
 
-    def _store_undo(self, changes):
+    def _store_undo(self, changes: Sequence[ChangeTuple]) -> None:
         """Store changes needed to reconstruct the previous state."""
-        state = [changes, self.modified]
+        state: UndoRedoAction = [changes, self.modified]
         if self._in_undo:
             self._redo_stack.append(state)
         else:
@@ -369,7 +404,7 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
             if not self._in_redo:
                 self._redo_stack.clear()
 
-    def _apply_undo_redo(self, switch, stack):
+    def _apply_undo_redo(self, switch: util.Switch, stack: list[UndoRedoAction]) -> None:
         """Apply changes from the specified stack (undo or redo).
 
         If the return value is not None, it is the new modified state.
@@ -378,14 +413,16 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
         if self._edit_context > 0:
             raise RuntimeError("can't undo or redo while in edit context")
         if stack:
-            changes, modified = stack.pop()
+            state = stack.pop()
+            changes = cast("Sequence[ChangeTuple]", state[0])
+            modified = cast("bool", state[1])
             with switch, self:
                 for start, end, text in changes:
                     self[start:end] = text
             self.modified = modified
 
     @contextlib.contextmanager
-    def _check_undo_state(self):
+    def _check_undo_state(self) -> Iterator[None]:
         """Context manager to perform operations that alter the undo / redo stack.
 
         Emits "undo_available" and "redo_available" when they change.
@@ -403,34 +440,34 @@ class Document(AbstractDocument, mutablestring.MutableString, util.Observable):
             if new_can_redo != can_redo:
                 self.emit("redo_available", new_can_redo)
 
-    def _set_all_undo_redo_modified(self):
+    def _set_all_undo_redo_modified(self) -> None:
         """Called on set_modified(False). Set all undo/redo state to modified."""
         for undo in itertools.chain(self._undo_stack, self._redo_stack):
             undo[1] = True
 
-    def undo(self):
+    def undo(self) -> None:
         """Undo the last modification."""
         self._apply_undo_redo(self._in_undo, self._undo_stack)
 
-    def redo(self):
+    def redo(self) -> None:
         """Redo the last undone modification."""
         self._apply_undo_redo(self._in_redo, self._redo_stack)
 
-    def clear_undo_redo(self):
+    def clear_undo_redo(self) -> None:
         """Clear the undo/redo stack."""
         with self._check_undo_state():
             self._undo_stack.clear()
             self._redo_stack.clear()
 
-    def can_undo(self):
+    def can_undo(self) -> bool:
         """Return True if undo is possible."""
         return bool(self._undo_stack)
 
-    def can_redo(self):
+    def can_redo(self) -> bool:
         """Return True if redo is possible."""
         return bool(self._redo_stack)
 
-    def text_changed(self, position, removed, added):
+    def text_changed(self, position: int, removed: int, added: int) -> None:
         """Called after ``_update_text()`` has been called.
 
         The default implementation emits the ``"text_change"`` and
@@ -454,69 +491,69 @@ class AbstractTextRange:
     __slots__ = ("_document", "pos", "end")
     __hash__ = object.__hash__
 
-    def __init__(self, document, pos, end):
-        self._document = document
-        self.pos = pos  #: the (start) position.
-        self.end = end  #: the end position (for Cursor, this may be None).
+    def __init__(self, document: AbstractDocument, pos: int, end: int | None) -> None:
+        self._document: AbstractDocument = document
+        self.pos: int = pos         #: the (start) position.
+        self.end: int | None = end  #: the end position (for Cursor, this may be None).
 
-    def __repr__(self):
-        key = [self.pos]
+    def __repr__(self) -> str:
+        key: list[int | str] = [self.pos]
         if self.pos != self.end:
             key.append(self.end or "")
-        key = ":".join(map(format, key))
+        k = ":".join(map(format, key))
         text = reprlib.repr(self.text())
-        return "<{} [{}] {}>".format(type(self).__name__, key, text)
+        return "<{} [{}] {}>".format(type(self).__name__, k, text)
 
-    def document(self):
+    def document(self) -> AbstractDocument:
         """Return our document."""
         return self._document
 
-    def text(self):
+    def text(self) -> str:
         """Return text in this range."""
         return self.document()[self]
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return True
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Return ``self.pos == other.pos and self.end == other.end``."""
         return type(self) is type(other) \
             and other.document() is self.document() \
             and other.pos == self.pos \
             and other.end == self.end
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         """Return ``self.pos != other.pos or self.end != other.end``."""
         return type(self) is not  type(other) \
             or other.document() is not self.document() \
             or other.pos != self.pos \
             or other.end != self.end
 
-    def __gt__(self, other):
+    def __gt__(self, other: object) -> bool:
         """Return ``self.pos > other.pos``."""
         if isinstance(other, AbstractTextRange):
             return self.pos > other.pos
         return NotImplemented
 
-    def __lt__(self, other):
+    def __lt__(self, other: object) -> bool:
         """Return ``self.pos < other.pos``."""
         if isinstance(other, AbstractTextRange):
             return self.pos < other.pos
         return NotImplemented
 
-    def __ge__(self, other):
+    def __ge__(self, other: object) -> bool:
         """Return ``self.pos >= other.pos``."""
         if isinstance(other, AbstractTextRange):
             return self.pos >= other.pos
         return NotImplemented
 
-    def __le__(self, other):
+    def __le__(self, other: object) -> bool:
         """Return ``self.pos <= other.pos``."""
         if isinstance(other, AbstractTextRange):
             return self.pos <= other.pos
         return NotImplemented
 
-    def token(self):
+    def token(self) -> Token:
         """Convenience method returning the :class:`~parce.tree.Token` at our pos.
 
         The Document must have the :class:`~.work.WorkerDocumentMixin` class
@@ -524,9 +561,10 @@ class AbstractTextRange:
         method.
 
         """
-        return self.document().token(self.pos)
+        doc: WorkerDocumentMixin = self.document()  # type: ignore[assignment]
+        return doc.token(self.pos)
 
-    def tokens(self):
+    def tokens(self) -> Iterable[Token]:
         """Convenience method yielding all Tokens that are in or overlap this
         text range.
 
@@ -535,7 +573,8 @@ class AbstractTextRange:
         method.
 
         """
-        r = self.document().get_root(True).range(self.pos, self.end)
+        doc: WorkerDocumentMixin = self.document()  # type: ignore[assignment]
+        r = doc.get_root(True).range(self.pos, self.end)
         if r:
             yield from r.tokens()
 
@@ -576,47 +615,47 @@ class Cursor(AbstractTextRange):
     """
     __slots__ = ("__weakref__",)
 
-    def __init__(self, document, pos=0, end=-1):
+    def __init__(self, document: AbstractDocument, pos: int = 0, end: int = -1) -> None:
         """Init with document. ``pos`` defaults to 0 and ``end`` defaults to pos."""
         super().__init__(document, pos, end if end != -1 else pos)
         document._cursors.add(self)
 
-    def block(self):
+    def block(self) -> Block:
         """Return the :class:`Block` our ``pos`` is in."""
         return self.document().find_block(self.pos)
 
-    def blocks(self):
+    def blocks(self) -> Iterator[Block]:
         """Yield the Blocks from pos to end."""
         yield from self.document().blocks(self.pos, self.end)
 
-    def move_start_of_block(self):
+    def move_start_of_block(self) -> Self:
         """Move pos and end to the start of the current block. Returns self."""
         self.pos = self.end = self.document().find_start_of_block(self.pos)
         return self
 
-    def move_end_of_block(self):
+    def move_end_of_block(self) -> Self:
         """Move pos and end to the end of the current block. Returns self."""
         self.pos = self.end = self.document().find_end_of_block(self.pos)
         return self
 
-    def select(self, pos, end=-1):
+    def select(self, pos: int, end: int = -1) -> Self:
         """Change pos and end in one go. End defaults to pos. Returns self."""
         self.pos = pos
         self.end = pos if end == -1 else end
         return self
 
-    def select_all(self):
+    def select_all(self) -> Self:
         """Set pos to 0 and end to None; selecting all text. Returns self."""
         self.pos = 0
         self.end = None
         return self
 
-    def select_none(self):
+    def select_none(self) -> Self:
         """Set end to pos. Returns self."""
         self.end = self.pos
         return self
 
-    def selection(self):
+    def selection(self) -> tuple[int, int]:
         """Return the two-tuple (pos, end) denoting the selected range.
 
         The ``end`` value is never None, it is set to the length of the
@@ -626,12 +665,12 @@ class Cursor(AbstractTextRange):
         end = len(self.document()) if self.end is None else self.end
         return self.pos, end
 
-    def has_selection(self):
+    def has_selection(self) -> bool:
         """Return True if text is selected."""
         pos, end = self.selection()
         return pos < end
 
-    def select_start_of_block(self):
+    def select_start_of_block(self) -> Self:
         """Moves the selection pos to the beginning of the current line.
 
         Returns self.
@@ -640,7 +679,7 @@ class Cursor(AbstractTextRange):
         self.pos = self.document().find_start_of_block(self.pos)
         return self
 
-    def select_end_of_block(self):
+    def select_end_of_block(self) -> Self:
         """Moves the selection end (if not None) to the end of its line.
 
         Returns self.
@@ -650,10 +689,10 @@ class Cursor(AbstractTextRange):
             self.end = self.document().find_end_of_block(self.end)
         return self
 
-    def lstrip(self, chars=None):
+    def lstrip(self, chars: str | None = None) -> Self:
         """Move pos to the right, if specified characters can be skipped.
 
-        By default whitespace is skipped, like Python's lstrip() string method.
+        By default, whitespace is skipped, like Python's lstrip() string method.
         Returns self.
 
         """
@@ -663,10 +702,10 @@ class Cursor(AbstractTextRange):
             self.pos += offset
         return self
 
-    def rstrip(self, chars=None):
+    def rstrip(self, chars: str | None = None) -> Self:
         """Move end to the left, if specified characters can be skipped.
 
-        By default whitespace is skipped, like Python's rstrip() string method.
+        By default, whitespace is skipped, like Python's rstrip() string method.
         Returns self.
 
         """
@@ -680,7 +719,7 @@ class Cursor(AbstractTextRange):
                 self.end -= offset
         return self
 
-    def strip(self, chars=None):
+    def strip(self, chars: str | None = None) -> Self:
         """Adjust pos and end, like Python's strip() method. Returns self."""
         self.rstrip(chars)
         self.lstrip(chars)
@@ -705,24 +744,26 @@ class Block(AbstractTextRange):
     """
     __slots__ = ('_block_number',)
 
-    def __init__(self, document, pos, end):
+    _block_number: int
+    end: int
+
+    def __init__(self, document: AbstractDocument, pos: int, end: int | None) -> None:
         super().__init__(document, pos, end)
         if pos == 0:
             self._block_number = 0
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.end - self.pos
 
-    def is_first(self):
+    def is_first(self) -> bool:
         """True if this is the first block."""
         return self.pos == 0
 
-    def is_last(self):
+    def is_last(self) -> bool:
         """True if this is the last block."""
         return self.end >= len(self.document())
 
-    @property
-    def block_number(self):
+    def block_number(self) -> int:
         """The number of this block in the document.
 
         The first block has number 0.
@@ -735,7 +776,7 @@ class Block(AbstractTextRange):
             n = self._block_number = d[:self.pos].count(d.block_separator)
         return n
 
-    def next_block(self):
+    def next_block(self) -> Block | None:
         """The next block if available."""
         if not self.is_last():
             pos = self.end + len(self.document().block_separator)
@@ -746,8 +787,9 @@ class Block(AbstractTextRange):
             except AttributeError:
                 pass
             return block
+        return None
 
-    def previous_block(self):
+    def previous_block(self) -> Block | None:
         """The previous block if available."""
         if self.pos > 0:
             end = self.pos - len(self.document().block_separator)
@@ -758,8 +800,9 @@ class Block(AbstractTextRange):
             except AttributeError:
                 pass
             return block
+        return None
 
-    def tokens(self):
+    def tokens(self) -> tuple[Token, ...]:
         """Convenience method returning a tuple with all Tokens that are in
         or overlap this block.
 
