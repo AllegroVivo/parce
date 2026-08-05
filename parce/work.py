@@ -40,11 +40,22 @@ Inherit of Worker to implement other features or another way to use a
 background thread for (parts of) the job.
 
 """
+from __future__ import annotations
+
+from collections.abc import Iterator, Callable
+from typing import Literal, Sequence, TYPE_CHECKING, Any, overload
 
 import threading
 import weakref
 
 from . import util
+
+if TYPE_CHECKING:
+    from parce.treebuilder import TreeBuilder
+    from parce._types import MaybeTransformer, RootLexicon, MaybeLexicon
+    from parce.tree import Context, Token
+    from parce.lexicon import Lexicon
+    from parce.document import AbstractDocument
 
 
 IDLE      = 0       # result is up-to-date
@@ -58,6 +69,8 @@ _STATES = {
     "replace": REPLACE,
     "done": DONE,
 }
+
+type WorkState = int  #: one of IDLE, BUILD, REPLACE, DONE
 
 
 class Worker(util.Observable):
@@ -90,24 +103,24 @@ class Worker(util.Observable):
         without arguments.
 
     """
-    def __init__(self, treebuilder, transformer=None):
+    def __init__(self, treebuilder: TreeBuilder, transformer: MaybeTransformer = None) -> None:
         super().__init__()
-        self._builder = treebuilder
-        self._transformer = transformer
+        self._builder: TreeBuilder = treebuilder
+        self._transformer: MaybeTransformer = transformer
 
-        self._condition = threading.Condition()
-        self._transform_lock = threading.Lock() # prevent setting Transformer without noticing
-        self._tree_state = IDLE
-        self._transform_state = IDLE
+        self._condition: threading.Condition = threading.Condition()
+        self._transform_lock: threading.Lock = threading.Lock() # prevent setting Transformer without noticing
+        self._tree_state: WorkState = IDLE
+        self._transform_state: WorkState = IDLE
 
         treebuilder.connect("invalidate", self.slot_invalidate)
         treebuilder.connect("replace", self.slot_replace)
 
-    def builder(self):
+    def builder(self) -> TreeBuilder:
         """Return the TreeBuilder we were initialized with."""
         return self._builder
 
-    def set_transformer(self, transformer):
+    def set_transformer(self, transformer: MaybeTransformer) -> None:
         """Set the Transformer to use.
 
         You may use one Transformer for multiple Workers.  Use None to
@@ -125,11 +138,18 @@ class Worker(util.Observable):
             if start:
                 self.start()
 
-    def transformer(self):
+    def transformer(self) -> MaybeTransformer:
         """Return the current Transformer, if set."""
         return self._transformer
 
-    def update(self, text, root_lexicon=False, start=0, removed=0, added=None):
+    def update(
+        self,
+        text : str,
+        root_lexicon: RootLexicon = False,
+        start: int = 0,
+        removed: int = 0,
+        added: int | None = None
+    ) -> None:
         """Start a process to update the tree and the transform.
 
         For the meaning of the arguments, see
@@ -143,7 +163,7 @@ class Worker(util.Observable):
             self._builder.busy = True
             self.start()
 
-    def start(self):
+    def start(self) -> None:
         """Start the update process.
 
         Sets the initial state and then calls :meth:`run_process`. This method
@@ -156,7 +176,7 @@ class Worker(util.Observable):
                 self._transform_state = BUILD
         self.run_process()
 
-    def run_process(self):
+    def run_process(self) -> None:
         """Exhaust the :meth:`process` generator.
 
         Called by :meth:`start`; performs the work after initial state has been
@@ -169,7 +189,7 @@ class Worker(util.Observable):
         for stage in self.process():
             pass
 
-    def process(self):
+    def process(self) -> Iterator[str]:
         """Generator performing the actual process, exhausted by :meth:`run_process`."""
         c = self._condition
 
@@ -213,7 +233,7 @@ class Worker(util.Observable):
                 self._transform_state = IDLE
                 c.notify_all()
 
-    def wait_build(self):
+    def wait_build(self) -> None:
         """Wait for the build job to be completed.
 
         Immediately returns if there is no build job active.
@@ -223,7 +243,7 @@ class Worker(util.Observable):
             while self._tree_state & REPLACE:
                 self._condition.wait()
 
-    def wait_transform(self):
+    def wait_transform(self) -> None:
         """Wait for the transform job to be completed.
 
         Immediately returns if there is no transform job active.
@@ -233,7 +253,11 @@ class Worker(util.Observable):
             while self._transform_state & REPLACE:
                 self._condition.wait()
 
-    def get_root(self, wait=False, callback=None):
+    def get_root(
+        self,
+        wait: bool = False,
+        callback: Callable[[Worker], None] | None = None
+    ) -> Context | None:
         """Return the root element of the completed tree.
 
         This is simply the builder's ``root`` instance attribute, but this
@@ -258,11 +282,15 @@ class Worker(util.Observable):
                 if callback:
                     self.connect("tree_finished", callback, True, True)
                 if not wait:
-                    return
+                    return None
                 self.wait_build()
             return self._builder.root
 
-    def get_transform(self, wait=False, callback=None):
+    def get_transform(
+        self,
+        wait: bool = False,
+        callback: Callable[[Worker], None] | None = None
+    ) -> Any:
         """Return the transformed result.
 
         If wait is True, the call blocks until (tokenizing and) transforming is
@@ -283,10 +311,11 @@ class Worker(util.Observable):
                         self.connect("transform_finished", callback, True, True)
                     if not wait:
                         return
+                        return
                     self.wait_transform()
                 return self._transformer.result(self._builder.root)
 
-    def slot_invalidate(self, context):
+    def slot_invalidate(self, context: Context) -> None:
         """Called when TreeBuilder emits ``("invalidate", context)``.
 
         Clears the node and its parents from the transform cache.
@@ -295,7 +324,7 @@ class Worker(util.Observable):
         if self._transformer:
             self._transformer.invalidate_node(context)
 
-    def slot_replace(self):
+    def slot_replace(self) -> None:
         """Called when TreeBuilder emits ``"replace"``.
 
         Interrupts the transformer.
@@ -304,7 +333,7 @@ class Worker(util.Observable):
         if self._transformer:
             self._transformer.interrupt(self._builder.root)
 
-    def start_build(self):
+    def start_build(self) -> None:
         """Called when the build process starts.
 
         Emits the ``'started'`` event.
@@ -312,7 +341,7 @@ class Worker(util.Observable):
         """
         self.emit("started")
 
-    def finish_build(self):
+    def finish_build(self) -> None:
         """Called when the treebuilder is done.
 
         Emits ``'tree_updated', start, end`` and then ``'tree_finished'``,
@@ -322,7 +351,7 @@ class Worker(util.Observable):
         self.emit("tree_updated", self._builder.start, self._builder.end)
         self.emit("tree_finished")
 
-    def finish_transform(self):
+    def finish_transform(self) -> None:
         """Called when the transform is finished.
 
         Emits ``'transform_finished'`` when the transform has been updated.
@@ -333,12 +362,17 @@ class Worker(util.Observable):
 
 class BackgroundWorker(Worker):
     """A Worker implementation that does the work in a background thread."""
-    def run_process(self):
+    def run_process(self) -> None:
         """Run the update process in a background thread."""
         threading.Thread(target=super().run_process).start()
 
 
-class WorkerDocumentMixin:
+if TYPE_CHECKING:
+    _DocumentBase = AbstractDocument
+else:
+    _DocumentBase = object
+
+class WorkerDocumentMixin(_DocumentBase):
     """Adds a Worker to a Document to automatically update the tokenized
     tree and the transformed result.
 
@@ -350,10 +384,16 @@ class WorkerDocumentMixin:
     starts, that part is also retokenized, until the state (the list of active
     lexicons) matches the state of existing tokens.
 
-    Also the transformed result, if a transformer is set, is updated.
+    Also, the transformed result, if a transformer is set, is updated.
 
     """
-    def __init__(self, root_lexicon=None, text="", worker=None, transformer=None):
+    def __init__(
+        self,
+        root_lexicon: MaybeLexicon = None,
+        text: str = "",
+        worker: Worker | None = None,
+        transformer: MaybeTransformer | Literal[True] = None
+    ):
         """Initialize with a :class:`Worker` instance, which is doing the work."""
         if transformer is True:
             from .transform import Transformer
@@ -371,19 +411,19 @@ class WorkerDocumentMixin:
         if text and root_lexicon:
             worker.update(text)
 
-    def worker(self):
+    def worker(self) -> Worker:
         """Return the Worker we were instantiated with."""
         return self._worker
 
-    def builder(self):
+    def builder(self) -> TreeBuilder:
         """Return the worker's TreeBuilder."""
         return self._worker._builder
 
-    def transformer(self):
+    def transformer(self) -> MaybeTransformer:
         """Return the worker's Transformer, if set."""
         return self._worker._transformer
 
-    def set_transformer(self, transformer):
+    def set_transformer(self, transformer: MaybeTransformer) -> None:
         """Set a new Transformer in the worker.
 
         Specify None to remove the current transformer.
@@ -393,11 +433,11 @@ class WorkerDocumentMixin:
         """
         self._worker.set_transformer(transformer)
 
-    def root_lexicon(self):
+    def root_lexicon(self) -> MaybeLexicon:
         """Return the currently set root lexicon."""
         return self.builder().root.lexicon
 
-    def set_root_lexicon(self, root_lexicon):
+    def set_root_lexicon(self, root_lexicon: RootLexicon) -> None:
         """Set the root lexicon to use to tokenize the text.
 
         Triggers an update of the tokenized tree.
@@ -409,7 +449,25 @@ class WorkerDocumentMixin:
         if not idle or root_lexicon is not w._builder.root.lexicon:
             self._worker.update(self.text(), root_lexicon)
 
-    def get_root(self, wait=False, callback=None):
+    @overload
+    def get_root(
+        self,
+        wait: Literal[True],
+        callback: Callable[[WorkerDocumentMixin], None] | None = None
+    ) -> Context: ...
+
+    @overload
+    def get_root(
+        self,
+        wait: bool = False,
+        callback: Callable[[WorkerDocumentMixin], None] | None = None
+    ) -> Context | None: ...
+
+    def get_root(
+        self,
+        wait: bool = False,
+        callback: Callable[[WorkerDocumentMixin], None] | None = None
+    ) -> Context | None:
         """Get the root element of the completed tree.
 
         If wait is True, this call blocks until tokenizing is done, and the
@@ -422,11 +480,10 @@ class WorkerDocumentMixin:
 
         .. seealso:: :meth:`Worker.get_root`
         """
-        if callback:
-            callback = self._callback_to_self(callback)
-        return self._worker.get_root(wait, callback)
+        cb = self._callback_to_self(callback) if callback else None
+        return self._worker.get_root(wait, cb)
 
-    def open_lexicons(self):
+    def open_lexicons(self) -> Sequence[Lexicon]:
         """Return the list of lexicons that were left open at the end of the text.
 
         The root lexicon is not included; if parsing ended in the root lexicon,
@@ -435,12 +492,16 @@ class WorkerDocumentMixin:
         """
         return self.builder().lexicons
 
-    def modified_range(self):
+    def modified_range(self) -> tuple[int, int]:
         """Return a two-tuple(start, end) describing the range that was re-tokenized."""
         b = self.builder()
         return b.start, b.end
 
-    def get_transform(self, wait=False, callback=None):
+    def get_transform(
+        self,
+        wait: bool = False,
+        callback: Callable[[WorkerDocumentMixin], None] | None = None
+    ) -> Any:
         """Return the transformed result (if a Transformer is active in the Worker).
 
         If wait is True, the call blocks until (tokenizing and) transforming is
@@ -453,11 +514,10 @@ class WorkerDocumentMixin:
 
         .. seealso:: :meth:`Worker.get_transform`
         """
-        if callback:
-            callback = self._callback_to_self(callback)
-        return self._worker.get_transform(wait, callback)
+        cb = self._callback_to_self(callback) if callback else None
+        return self._worker.get_transform(wait, cb)
 
-    def text_changed(self, start, removed, added):
+    def text_changed(self, start: int, removed: int, added: int) -> None:
         """Called after modification of the text.
 
         Retokenizes the modified part and updates the transformation.
@@ -466,7 +526,7 @@ class WorkerDocumentMixin:
         self._worker.update(self.text(), False, start, removed, added)
         super().text_changed(start, removed, added)
 
-    def token(self, pos):
+    def token(self, pos: int) -> Token | None:
         """Returns the token at the specified position, in an intuitive way.
 
         If a token starts at position, it is returned. Otherwise, if a token
@@ -474,7 +534,9 @@ class WorkerDocumentMixin:
         different block. Returns None if there are no tokens in the block.
 
         """
-        token = self.get_root(True).find_token(pos)
+        root = self.get_root(True)
+        assert root is not None
+        token = root.find_token(pos)
         if token:
             if token.pos <= pos:
                 return token
@@ -485,8 +547,12 @@ class WorkerDocumentMixin:
             # see if token (to the right) is on the same line
             if self.block_separator not in self[pos:token.pos]:
                 return token
+        return None
 
-    def _callback_to_self(self, callback):
+    def _callback_to_self(
+        self,
+        callback: Callable[[WorkerDocumentMixin], None]
+    ) -> Callable[[Worker], None]:
         """Return a callable that calls callback with self as first argument.
 
         The original first argument is ignored (that's the Worker). Does not
@@ -494,7 +560,7 @@ class WorkerDocumentMixin:
 
         """
         selfref = weakref.ref(self)
-        def cb(worker):
+        def cb(worker: Worker) -> None:
             self = selfref()
             if self:
                 callback(self)
