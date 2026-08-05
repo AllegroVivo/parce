@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from parce.lexicon import Lexicon
     from parce.standardaction import StandardAction
     from parce.document import AbstractTextRange
+    from parce.transform import Transformer
 
 type RootLexicon = Lexicon | Literal[False] | None
 type Lexeme = tuple[int, str, StandardAction]
@@ -16,6 +17,7 @@ type ChangeTuple = tuple[int, int, str]
 type MaybeContext = Context | None
 type MaybeToken = Token | None
 type MaybeLexicon = Lexicon | None
+type MaybeTransformer =  Transformer | None
 
 type IntOrSlice = int | slice
 type DocumentKey = IntOrSlice | AbstractTextRange

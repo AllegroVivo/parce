@@ -177,7 +177,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                 end = text.find(sep, pos)
                 if end == -1:
                     end = len(text)
-            block = Block(self, pos, end)
+            block = Block(self, pos, end)  # type: ignore[possibly-undefined]  # number >= 0, so the loop always runs
             block._block_number = n
         else:
             pos = len(text) + l
@@ -187,7 +187,7 @@ class AbstractDocument(mutablestring.AbstractMutableString):
                 end = pos - l
                 pos = text.rfind(sep, 0, end)
                 pos = 0 if pos == -1 else pos + l
-            block = Block(self, pos, end)
+            block = Block(self, pos, end)  # type: ignore[possibly-undefined]  # number >= 0, so the loop always runs
         return block
 
     def block_count(self) -> int:
@@ -553,7 +553,7 @@ class AbstractTextRange:
             return self.pos <= other.pos
         return NotImplemented
 
-    def token(self) -> Token:
+    def token(self) -> Token | None:
         """Convenience method returning the :class:`~parce.tree.Token` at our pos.
 
         The Document must have the :class:`~.work.WorkerDocumentMixin` class
