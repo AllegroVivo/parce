@@ -199,7 +199,7 @@ class Transformer(util.Observable):
 
     def __init__(self) -> None:
         super().__init__()
-        self._transforms: dict[Language, Transform | None] = util.caching_dict(self.find_transform)
+        self._transforms: dict[type[Language], Transform | None] = util.caching_dict(self.find_transform)
         self._cache: weakref.WeakKeyDictionary[Context, Any] = weakref.WeakKeyDictionary()
         self._interrupt: weakref.WeakKeyDictionary[Context, bool] = weakref.WeakKeyDictionary()
 
@@ -451,7 +451,7 @@ class Transformer(util.Observable):
         """
         self.build(builder.root)
 
-    def get_transform(self, language: Language) -> Transform | None:
+    def get_transform(self, language: type[Language]) -> Transform | None:
         """Return a Transform class instance for the specified language.
 
         May return None, if no Transform was added and none could be found.
@@ -459,7 +459,7 @@ class Transformer(util.Observable):
         """
         return self._transforms[language]
 
-    def add_transform(self, language: Language, transform: Transform | None) -> None:
+    def add_transform(self, language: type[Language], transform: Transform | None) -> None:
         """Add a Transform instance for the specified language.
 
         You may also specify None, to disable transformation for that language
@@ -468,7 +468,7 @@ class Transformer(util.Observable):
         """
         self._transforms[language] = transform
 
-    def find_transform(self, language: Language) -> Transform | None:
+    def find_transform(self, language: type[Language]) -> Language | None:
         """Try to find a Transform for the specified language definition.
 
         This is done by looking for a Transform subclass in the language's
