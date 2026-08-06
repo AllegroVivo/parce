@@ -335,8 +335,8 @@ class Node:
     @property
     def query(self) -> Query:
         """Query this node in different ways; see the :mod:`~parce.query` module."""
-        def gen() -> Iterator[Node]:
-            yield self
+        def gen() -> Iterator[ContextOrToken]:
+            yield cast("ContextOrToken", self)
         return Query(gen)
 
     def delete(self) -> MaybeContext:
@@ -415,7 +415,8 @@ class Token(Node):
 
     __slots__ = ("_parent", "pos", "text", "action")
 
-    is_token = True     #: Always True for Token
+    is_token: ClassVar[Literal[True]] = True     #: Always True for Token
+    is_context: ClassVar[Literal[False]] = False     #: Always False for Token
 
     def __init__(self, parent: MaybeContext, pos: int, text: str, action: StandardAction) -> None:
         self.parent = parent                    #: The Context node to which the token was added
@@ -668,7 +669,8 @@ class Context(list, Node):  # type: ignore[misc]  # only works while Node adds n
     """
     __slots__ = ("lexicon", "_parent")
 
-    is_context = True   #: Always True for Context
+    is_context: ClassVar[Literal[True]] = True   #: Always True for Context
+    is_token: ClassVar[Literal[False]] = False   #: Always False for Context
 
     def __new__(cls, lexicon: Lexicon, parent: Context) -> Self:
         return list.__new__(cls)

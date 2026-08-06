@@ -195,7 +195,11 @@ selected when the action exactly matches, or is a descendant of the given
 action.
 
 """
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Self, Any
+
+from collections.abc import Iterator, Callable, Iterable
 
 import collections
 import functools
@@ -205,16 +209,24 @@ import sys
 
 from .lexicon import Lexicon
 
+if TYPE_CHECKING:
+    from parce._types import ContextOrToken, IntOrSlice
+    from parce.tree import DumpStyle, Token, Context, Node
+    from _typeshed import SupportsWrite
+    from parce.standardaction import StandardAction
 
-def query(func):
+type NodeGen = Callable[[], Iterator[ContextOrToken]]
+type QueryFunc = Callable[..., Iterator[ContextOrToken]]
+
+def query(func: QueryFunc) -> Callable[..., Query]:
     """Make a method result (generator) into a new Query object."""
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: Query, *args: Any, **kwargs: Any) -> Query:
         return Query(lambda: func(self, *args, **kwargs))
     return wrapper
 
 
-def pquery(func):
+def pquery(func: QueryFunc) -> property:
     """Make a method result into a Query object, and the method a property."""
     return property(query(func))
 
@@ -228,38 +240,42 @@ class Query:
     contexts).
 
     """
-    __slots__ = '_gen', '_inv'
+    __slots__ = ('_gen', '_inv')
 
-    def __init__(self, gen, invert=False):
-        self._gen = gen
-        self._inv = invert
+    def __init__(self, gen: NodeGen, invert: bool = False) -> None:
+        self._gen: NodeGen = gen
+        self._inv: bool = invert
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ContextOrToken]:
         return self._gen()
 
     @classmethod
-    def from_nodes(cls, nodes):
+    def from_nodes(cls, nodes: Iterable[ContextOrToken]) -> Self:
         """Create a Query object querying a list of nodes in one go."""
         return cls(lambda: iter(nodes))
 
     # end points
-    def __bool__(self):
+    def __bool__(self) -> bool:
         """Return True if there is at least one result."""
         for n in self:
             return True
         return False
 
     @property
-    def ls(self):
+    def ls(self) -> None:
         """List current selection of this Query, for debugging purposes."""
         for i, n in enumerate(self):
             print("[{}] {}".format(i, repr(n)))
 
-    def count(self):
+    def count(self) -> int:
         """Compute the length of the iterable."""
         return sum(1 for _ in self)
 
-    def dump(self, file=None, style=None):
+    def dump(
+        self,
+        file: SupportsWrite[str] | None = None,
+        style: DumpStyle | None = None
+    ) -> None:
         """Dump all selected nodes to the console (or to file).
 
         .. seealso:: :meth:`.tree.Node.dump`
@@ -268,19 +284,19 @@ class Query:
         for n in self:
             n.dump(file, style)
 
-    def pick(self, default=None):
+    def pick(self, default: Any = None) -> Any:
         """Pick the first value, or return the default."""
         for n in self:
             return n
         return default
 
-    def pick_last(self, default=None):
+    def pick_last(self, default: Any = None) -> Any:
         """Pick the last value, or return the default."""
         for default in self:
             pass
         return default
 
-    def range(self):
+    def range(self) -> tuple[int, int]:
         """Return the text range as a tuple (pos, end).
 
         The ``pos`` is the lowest pos of the nodes in the current set, and
@@ -298,7 +314,7 @@ class Query:
                 end = max(end, n.end)
         return pos, end
 
-    def delete(self):
+    def delete(self) -> int:
         """Delete all selected nodes from their parents.
 
         Internally calls ``uniq`` and ``remove_descendants``, so that no
@@ -354,14 +370,14 @@ class Query:
 
     # navigators
     @query
-    def __getitem__(self, key):
+    def __getitem__(self, key: IntOrSlice) -> Iterator[ContextOrToken]:
         """Get the specified item or items of every context node.
 
         Note that the result nodes always form a flat iterable. No IndexError
         will be raised if an index would be out of range for any node.
 
         """
-        # slicing or itemgetting with integers are not invertible selectors
+        # slicing or item-getting with integers are not invertible selectors
         if isinstance(key, slice):
             for n in self:
                 if n.is_context:
@@ -374,16 +390,16 @@ class Query:
                         yield n[k]
 
     @pquery
-    def children(self):
+    def children(self) -> Iterator[ContextOrToken]:
         """All direct children of the current nodes."""
         for n in self:
             if n.is_context:
                 yield from n
 
     @pquery
-    def all(self):
+    def all(self) -> Iterator[ContextOrToken]:
         """All descendants, contexts and their nodes."""
-        def innergen(n):
+        def innergen(n: Context) -> Iterator[Token]:
             stack = []
             j = 0
             while True:
@@ -397,7 +413,9 @@ class Query:
                         break
                 else:
                     if stack:
-                        n = n.parent
+                        parent = n.parent
+                        assert parent is not None  # stack is non-empty: we descended from it
+                        n = parent
                         j = stack.pop() + 1
                     else:
                         break
@@ -407,7 +425,7 @@ class Query:
                 yield from innergen(n)
 
     @pquery
-    def alltokens(self):
+    def alltokens(self) -> Iterator[Token]:
         """Shortcut for all.tokens."""
         for n in self:
             if n.is_token:
@@ -416,9 +434,9 @@ class Query:
                 yield from n.tokens()
 
     @pquery
-    def allcontexts(self):
+    def allcontexts(self) -> Iterator[Context]:
         """Shortcut for all.contexts."""
-        def innergen(n):
+        def innergen(n: Context) -> Iterator[Context]:
             stack = []
             j = 0
             while True:
@@ -432,7 +450,9 @@ class Query:
                         break
                 else:
                     if stack:
-                        n = n.parent
+                        parent = n.parent
+                        assert parent is not None  # stack is non-empty: we descended from it
+                        n = parent
                         j = stack.pop() + 1
                     else:
                         break
@@ -442,7 +462,7 @@ class Query:
                 yield from innergen(n)
 
     @pquery
-    def parent(self):
+    def parent(self) -> Iterator[Context]:
         """Yield the parent of every node.
 
         This can lead to many double occurrences of the same node in the
@@ -454,27 +474,27 @@ class Query:
                 yield n.parent
 
     @pquery
-    def ancestors(self):
+    def ancestors(self) -> Iterator[Context]:
         """Yield the ancestor contexts of every node."""
         for n in self:
             yield from n.ancestors()
 
     @pquery
-    def first(self):
+    def first(self) -> Iterator[ContextOrToken]:
         """Yield the first node of every context node, same as [0]."""
         for n in self:
             if n and n.is_context:
                 yield n[0]
 
     @pquery
-    def last(self):
+    def last(self) -> Iterator[ContextOrToken]:
         """Yield the last node of every context node, same as [-1]."""
         for n in self:
             if n and n.is_context:
                 yield n[-1]
 
     @pquery
-    def next(self):
+    def next(self) -> Iterator[Token]:
         """Yield the next token, if any."""
         for n in self:
             t = n.next_token()
@@ -482,7 +502,7 @@ class Query:
                 yield t
 
     @pquery
-    def previous(self):
+    def previous(self) -> Iterator[Token]:
         """Yield the previous token, if any."""
         for n in self:
             t = n.previous_token()
@@ -490,75 +510,78 @@ class Query:
                 yield t
 
     @pquery
-    def forward(self):
+    def forward(self) -> Iterator[Token]:
         """Yield Tokens in forward direction."""
         for n in self:
             yield from n.forward()
 
     @pquery
-    def backward(self):
+    def backward(self) -> Iterator[Token]:
         """Yield Tokens in backward direction."""
         for n in self:
             yield from n.backward()
 
     @pquery
-    def right(self):
+    def right(self) -> Iterator[ContextOrToken]:
         """Yield the right sibling, if any."""
         for n in self:
-            n = n.right_sibling()
+            n: ContextOrToken = n.right_sibling()  # type: ignore[no-redef]
             if n:
                 yield n
 
     @pquery
-    def left(self):
+    def left(self) -> Iterator[ContextOrToken]:
         """Yield the left sibling, if any."""
         for n in self:
-            n = n.left_sibling()
+            n: ContextOrToken = n.left_sibling()  # type: ignore[no-redef]
             if n:
                 yield n
 
     @pquery
-    def right_siblings(self):
+    def right_siblings(self) -> Iterator[ContextOrToken]:
         """Yield the right siblings, if any."""
         for n in self:
-            yield from n.right_siblings()
+            yield from n.right_siblings()  # type: ignore[misc]
 
     @pquery
-    def left_siblings(self):
+    def left_siblings(self) -> Iterator[ContextOrToken]:
         """Yield the left siblings, if any."""
         for n in self:
-            yield from n.left_siblings()
+            yield from n.left_siblings()  # type: ignore[misc]
 
     @query
-    def map(self, function):
+    def map(
+        self,
+        function: Callable[[ContextOrToken], Iterable[ContextOrToken]]
+    ) -> Iterator[ContextOrToken]:
         """Call the function on every node and yield its results, which should be zero or more nodes as well."""
         for n in self:
             yield from function(n)
 
     # selectors
     @query
-    def filter(self, predicate):
+    def filter(self, predicate: Callable[[ContextOrToken], Any]) -> Iterator[ContextOrToken]:
         """Yield nodes for which the predicate returns a value that evaluates to True."""
         for n in self:
             if predicate(n):
                 yield n
 
     @pquery
-    def tokens(self):
+    def tokens(self) -> Iterator[Token]:
         """Get only the tokens."""
         for n in self:
             if n.is_token:
                 yield n
 
     @pquery
-    def contexts(self):
+    def contexts(self) -> Iterator[Context]:
         """Get only the contexts."""
         for n in self:
             if n.is_context:
                 yield n
 
     @pquery
-    def uniq(self):
+    def uniq(self) -> Iterator[ContextOrToken]:
         """Remove double occurrences of the same node from the result set.
 
         This can happen e.g. when you find the parent of multiple nodes.
@@ -572,7 +595,7 @@ class Query:
                 yield n
 
     @query
-    def slice(self, *args):
+    def slice(self, *args: int | None) -> Iterator:
         """Slice the full result set, using :py:func:`itertools.islice`.
 
         This can help narrowing down the result set. For example::
@@ -589,7 +612,7 @@ class Query:
         yield from itertools.islice(self, *args)
 
     @pquery
-    def remove_descendants(self):
+    def remove_descendants(self) -> Iterator[ContextOrToken]:
         """Remove nodes that have ancestors in the current node list."""
         ids = set(map(id, self))
         for n in self:
@@ -597,7 +620,7 @@ class Query:
                 yield n
 
     @pquery
-    def remove_ancestors(self):
+    def remove_ancestors(self) -> Iterator[ContextOrToken]:
         """Remove nodes that have descendants in the current node list."""
         ids = set(map(id, self)) & set(map(id, (p for n in self for p in n.ancestors())))
         for n in self:
@@ -605,13 +628,13 @@ class Query:
                 yield n
 
     @property
-    def is_not(self):
+    def is_not(self) -> Query:
         """Invert the next query."""
         return type(self)(self._gen, not self._inv)
 
     # invertible selectors
     @query
-    def len(self, min_length, max_length=None):
+    def len(self, min_length: int, max_length: int | None = None) -> Iterator[ContextOrToken]:
         """Only yield contexts, with min_length, or with length between min and max."""
         if max_length is None:
             for n in self:
@@ -623,7 +646,7 @@ class Query:
                     yield n
 
     @query
-    def in_range(self, start=0, end=None):
+    def in_range(self, start: int=0, end: int | None=None) -> Iterator[ContextOrToken]:
         """Yield a restricted set, tokens and/or contexts must fall in start→end"""
         if end is None:
             end = sys.maxsize
@@ -638,7 +661,7 @@ class Query:
                     yield n
 
     @query
-    def __call__(self, *what):
+    def __call__(self, *what: str | Lexicon) -> Iterator[ContextOrToken]:
         """Yield token if token has that text, or context if context has that lexicon.
 
         You can even mix the types if you'd need to::
@@ -655,28 +678,28 @@ class Query:
                 yield n
 
     @query
-    def startingwith(self, text):
+    def startingwith(self, text: str) -> Iterator[Token]:
         """Yield tokens that start with text."""
         for t in self:
             if t.is_token and self._inv ^ t.text.startswith(text):
                 yield t
 
     @query
-    def endingwith(self, text):
+    def endingwith(self, text: str) -> Iterator[Token]:
         """Yield tokens that end with text."""
         for t in self:
             if t.is_token and self._inv ^ t.text.endswith(text):
                 yield t
 
     @query
-    def containing(self, text):
+    def containing(self, text: str) -> Iterator[Token]:
         """Yield tokens that contain the specified text."""
         for t in self:
             if t.is_token and self._inv ^ (text in t.text):
                 yield t
 
     @query
-    def matching(self, pattern, flags=0):
+    def matching(self, pattern: re.Pattern[str], flags: re.RegexFlag | int = 0) -> Iterator[Token]:
         """Yield tokens matching the regular expression.
 
         :func:`re.search` is used, so the expression can match anywhere
@@ -689,14 +712,14 @@ class Query:
                 yield t
 
     @query
-    def action(self, *actions):
+    def action(self, *actions: StandardAction) -> Iterator[Token]:
         """Yield those tokens whose action *is* one of the given actions."""
         for t in self:
             if t.is_token and self._inv ^ (t.action in actions):
                 yield t
 
     @query
-    def in_action(self, *actions):
+    def in_action(self, *actions: StandardAction) -> Iterator[Token]:
         """Yield those tokens whose action *is or inherits from* one of the given actions."""
         for t in self:
             if t.is_token and self._inv ^ any(t.action in a for a in actions):

@@ -854,9 +854,9 @@ def tokens(nodes: Sequence[ContextOrToken], reverse: bool = False) -> Iterator[T
         nodes: Iterable[ContextOrToken] = reversed(nodes)  # type: ignore[no-redef]
     for n in nodes:
         if n.is_token:
-            yield cast("Token", n)
+            yield n
         else:
-            yield from cast("Context", n).tokens(reverse)
+            yield from n.tokens(reverse)
 
 
 def language_sister_class[L: Language](
