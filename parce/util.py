@@ -121,16 +121,16 @@ class Dispatcher:
     """
     _name: str
 
-    def __init__(self, default_func: FunctionType | None = None) -> None:
+    def __init__(self, default_func: Callable[..., Any] | None = None) -> None:
         self._lock: threading.Lock = threading.Lock()
         self._table: dict[Any, str] = {}
         self._tables: WeakKeyDictionary[type[Any], DispatcherTable] = WeakKeyDictionary()
-        self._default_func: FunctionType | None = default_func
+        self._default_func: Callable[..., Any] | None = default_func
 
     def __set_name__(self, owner: type[Any], name: str) -> None:
         self._name = name
 
-    def __call__[F: FunctionType](self, *args: Any) -> Callable[[F], F]:
+    def __call__[F: Callable[..., Any]](self, *args: Any) -> Callable[[F], F]:
         def decorator(func: F) -> F:
             for a in args:
                 self._table[a] = func.__name__
