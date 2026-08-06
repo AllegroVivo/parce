@@ -26,10 +26,20 @@ Normally, you don't need this module directly; use the :mod:`~parce.rule`
 module for your language definitions.
 
 """
+from __future__ import annotations
 
-import operator
+import re
+
+from collections.abc import Iterator, Callable, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Self
 
 from . import util
+import operator
+
+if TYPE_CHECKING:
+    from parce.lexicon import Lexicon
+    from parce._types import Lexeme
+    from parce.lexer import Lexer
 
 
 # pre_evaluate flags
@@ -37,6 +47,7 @@ _CHANGED = 0
 _COMPLETE = 1
 _UNCHANGED = 2
 
+type Namespace = dict[str, Any]  #: the {'text': …, 'match': …} or {'arg': …} mapping
 
 class _EvaluationError(RuntimeError):
     """Raised when an attribute is missing in the evaluation namespace."""
@@ -44,7 +55,7 @@ class _EvaluationError(RuntimeError):
 
 
 class Item:
-    """Base class for any replacable rule item.
+    """Base class for any replaceable rule item.
 
     An Item is considered to be immutable; you should never alter the
     attributes after instantiation. When an Item can be partly pre-evaluated a
@@ -57,17 +68,17 @@ class Item:
 
     """
     __slots__ = ()
-    _getitem_func = operator.getitem
+    _getitem_func: Callable[[Any, Any], Any] = operator.getitem
 
-    def __getitem__(self, n):
+    def __getitem__(self, n: Any) -> call:
         """Return a new Item that performs item[n]. n is evaluated as well."""
         return call(self._getitem_func, self, n)
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: Namespace) -> Any:
         """Evaluate item in namespace dict ``ns``."""
         raise NotImplementedError
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, int]:
         """Try to evaluate item in namespace dict ``ns``.
 
         Return a two-tuple(obj, success).
@@ -90,7 +101,7 @@ class Item:
         except _EvaluationError:
             return self, _UNCHANGED
 
-    def variations(self):
+    def variations(self) -> Iterator[Any]:
         """Yield the possible results for this item.
 
         This is used to build a decision tree for a rule, to see which actions
@@ -102,12 +113,12 @@ class Item:
         """
         raise RuntimeError("Item '{}' can't be used directly in a rule".format(repr(self)))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "{}({})".format(
             self.__class__.__name__,
             ', '.join(map(repr, self._repr_args())))
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Any, ...]:
         return ()
 
 
@@ -120,35 +131,40 @@ class VariableItem(Item):
 
     """
     __slots__ = ('_name', '_getitem_func')
-    def __init__(self, name, getitem_func=operator.getitem):
+    def __init__(
+        self,
+        name: str,
+        getitem_func: Callable[[Any, Any], Any] = operator.getitem
+    ) -> None:
         self._name = name
         self._getitem_func = getitem_func
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: Namespace) -> Any:
         """Get the variable from the namespace dict."""
         try:
             return ns[self._name]
         except KeyError as e:
             raise _EvaluationError("Can't find variable '{}'".format(self._name)) from e
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self._name.upper()
 
 
 class call(Item):
     """Call predicate with arguments."""
     __slots__ = ('_predicate', '_arguments')
-    def __init__(self, predicate, *arguments):
-        self._predicate = predicate
-        self._arguments = arguments
 
-    def evaluate(self, ns):
+    def __init__(self, predicate: Callable[..., Any], *arguments: Any) -> None:
+        self._predicate: Callable[..., Any] = predicate
+        self._arguments: tuple[Any] = arguments
+
+    def evaluate(self, ns: Any) -> Any:
         """Call predicate with the arguments."""
         predicate = evaluate(self._predicate, ns)
         arguments = evaluate(self._arguments, ns)
         return predicate(*arguments)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         predicate, pred_ok = pre_evaluate(self._predicate, ns)
         arguments, arg_ok  = pre_evaluate(self._arguments, ns)
@@ -159,7 +175,7 @@ class call(Item):
             return self, _UNCHANGED
         return type(self)(predicate, *arguments), _CHANGED
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Any, ...]:
         return (self._predicate, *self._arguments)
 
 
@@ -180,17 +196,17 @@ class select(RuleItem):
     """
     __slots__ = ('_index', '_items')
 
-    def __init__(self, index, *items):
-        self._index = index
-        self._items = items
+    def __init__(self, index: int | Item, *items: Any):
+        self._index: int | Item = index
+        self._items: tuple[Any, ...] = items
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: Namespace) -> Any:
         """Return items[index]."""
         index = evaluate(self._index, ns)
         item = evaluate(self._items[index], ns)
         return item
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         index, ok = pre_evaluate(self._index, ns)
         if ok & _COMPLETE:
@@ -202,13 +218,14 @@ class select(RuleItem):
             return self, _UNCHANGED
         return type(self)(index, *items), _CHANGED
 
-    def variations(self):
+    def variations(self) -> Iterator[Any]:
         """Yield all the items that could be chosen (unevaluated)."""
         yield from self._items
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Any, ...]:
         return (self._index, *self._items)
 
+type TargetValue = int | tuple[int, Any] | Item
 
 class target(RuleItem):
     """target(value, *lexicons)
@@ -222,11 +239,11 @@ class target(RuleItem):
     """
     __slots__ = ('_value', '_lexicons')
 
-    def __init__(self, value, *lexicons):
-        self._value = value
-        self._lexicons = lexicons
+    def __init__(self, value: TargetValue, *lexicons: Lexicon | Item) -> None:
+        self._value: TargetValue = value
+        self._lexicons: tuple[Lexicon | Item, ...] = lexicons
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: Namespace) -> Any:
         """Return value if integer, otherwise lexicons[value[0]](value[1])."""
         value = evaluate(self._value, ns)
         if isinstance(value, int):
@@ -235,7 +252,7 @@ class target(RuleItem):
         lexicon = evaluate(self._lexicons[index], ns)
         return lexicon if arg is None else lexicon(arg)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, int]:
         """Optimize by pre-evaluating what can be pre-evaluated."""
         value, ok = pre_evaluate(self._value, ns)
         if ok & _COMPLETE:
@@ -253,7 +270,7 @@ class target(RuleItem):
             return self, ok
         return type(self)(value, *lexicons), ok
 
-    def variations(self):
+    def variations(self) -> Iterator[Lexicon | Item | util.Symbol | int]:
         """Yield our possible variations.
 
         If the value is evaluated, yield either the value or the chosen
@@ -270,7 +287,7 @@ class target(RuleItem):
             index, arg = value
             yield self._lexicons[index]
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Any, ...]:
         return (self._value, *self._lexicons)
 
 
@@ -286,28 +303,28 @@ class PostponedItem(RuleItem):
     """
     __slots__ = ()
 
-    def evaluate(self, ns):
+    def evaluate(self, ns: Namespace) -> Any:
         """Evaluate all values returned by the evaluate_items() method.
 
         If any value changes, a copy of the Item is returned, otherwise the
-        Item ifself. If the evaluate_items() method does not yield any value,
+        Item itself. If the evaluate_items() method does not yield any value,
         this Item is always returned unchanged.
 
         """
         items, ok = pre_evaluate(self.evaluate_items(), ns)
         return self if ok & _UNCHANGED else type(self)(*items)
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, int]:
         """Pre-evaluate all values returned by the evaluate_items() method.
 
         If any value changes, a copy of the Item is returned, otherwise the
-        Item ifself.
+        Item itself.
 
         """
         items, ok = pre_evaluate(self.evaluate_items(), ns)
         return self if ok & _UNCHANGED else type(self)(*items), ok
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> tuple[Any, ...]:
         """Return a tuple of the values as given to the __init__ method,
         when they need to be evaluated inside this PostponedItem.
 
@@ -318,6 +335,7 @@ class PostponedItem(RuleItem):
         """
         return ()
 
+type PatternValue = str | Item | None
 
 class pattern(PostponedItem):
     """Represents a pattern.
@@ -327,19 +345,19 @@ class pattern(PostponedItem):
     """
     __slots__ = ('_value',)
 
-    def __init__(self, value):
-        self._value = value
+    def __init__(self, value: PatternValue):
+        self._value: PatternValue = value
 
     @property
-    def value(self):
+    def value(self) -> PatternValue:
         """Get the pattern value."""
         return self._value
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> tuple[PatternValue, ...]:
         """Yield the pattern value."""
         return self._value,
 
-    def variations(self):
+    def variations(self) -> Iterator[util.Symbol | PatternValue | None]:
         """If the value is evaluated, yield it, otherwise yields ``None`` and ``a_string``."""
         if isinstance(self._value, Item):
             yield None
@@ -347,7 +365,7 @@ class pattern(PostponedItem):
         else:
             yield self._value
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[PatternValue]:
         return self._value,
 
 
@@ -375,21 +393,28 @@ class SubgroupAction(ActionItem):
 
     """
     __slots__ = ('_actions',)
-    def __init__(self, *actions):
-        self._actions = actions
+    def __init__(self, *actions: Any) -> None:
+        self._actions: tuple[Any, ...] = actions
 
-    def replace(self, lexer, pos, text, match):
+    def replace(
+        self,
+        lexer: Lexer,
+        pos: int,
+        text: str,
+        match: re.Match[str]
+    ) -> Iterator[Lexeme]:
+        assert match.lastindex is not None, "SubgroupAction requires a match with subgroups"
         for i, action in enumerate(self._actions, match.lastindex + 1):
             yield from lexer.filter_actions(action, match.start(i), match.group(i), match)
 
-    def variations(self):
+    def variations(self) -> Iterator[Any]:
         """Yield the possible actions."""
         yield from self._actions
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Any, ...]:
         return self._actions
 
-    def pre_evaluate(self, ns):
+    def pre_evaluate(self, ns: Namespace) -> tuple[Any, ...]:
         """Reimplemented to only pre-evaluate subgroup actions (evaluating happens in the lexer)."""
         items, ok = pre_evaluate(self._actions, ns)
         return self if ok & _UNCHANGED else type(self)(*items), ok
@@ -409,25 +434,31 @@ class DelegateAction(ActionItem):
     """
     __slots__ = ('_lexicon',)
 
-    def __init__(self, lexicon):
-        self._lexicon = lexicon
+    def __init__(self, lexicon: Lexicon) -> None:
+        self._lexicon: Lexicon = lexicon
 
-    def replace(self, lexer, pos, text, match):
+    def replace(
+        self,
+        lexer: Lexer,
+        pos: int,
+        text: str,
+        match: re.Match[str]
+    ) -> Iterator[Lexeme]:
         """Use our lexicon to parse the matched text."""
         sublexer = type(lexer)([self._lexicon])
         for e in sublexer.events(text):
             for p, txt, action in e.lexemes:
                 yield pos + p, txt, action
 
-    def evaluate_items(self):
+    def evaluate_items(self) -> tuple[Lexicon]:
         """Return the lexicon specified on init, used by evaluate() and pre_evaluate()."""
         return self._lexicon,
 
-    def variations(self):
+    def variations(self) -> Iterator[Lexicon]:
         """Yield our lexicon."""
         yield self._lexicon
 
-    def _repr_args(self):
+    def _repr_args(self) -> tuple[Lexicon]:
         return self._lexicon,
 
 
@@ -438,16 +469,22 @@ class SkipAction(ActionItem):
     to silently ignore the matched text.
 
     """
-    def replace(self, lexer, pos, text, match):
+    def replace(
+        self,
+        lexer: Lexer,
+        pos: int,
+        text: str,
+        match: re.Match[str]
+    ) -> Iterator[Lexeme]:
         yield from ()
 
-    def variations(self):
+    def variations(self) -> Iterator[None]:
         """Yield no variations."""
         return
         yield
 
 
-def evaluate(obj, ns):
+def evaluate(obj: Any, ns: Namespace) -> Any:
     """Evaluate an object, that may or may not be an Item.
 
     The namespace `ns` is a dictionary containing text, match and/or arg
@@ -462,7 +499,7 @@ def evaluate(obj, ns):
     return obj
 
 
-def evaluate_rule(rule, match):
+def evaluate_rule(rule: Iterable[Any], match: re.Match[str]) -> Iterator[Any]:
     """Evaluate all RuleItem objects in the rule.
 
     The specified match object provides the value for the TEXT and MATCH
@@ -470,7 +507,7 @@ def evaluate_rule(rule, match):
 
     """
     ns = {'text': match.group(), 'match': match}
-    def eval_rule_items(objs):
+    def eval_rule_items(objs: Iterable[Any]) -> Iterator[Any]:
         for obj in objs:
             if isinstance(obj, RuleItem):
                 yield from util.unroll(obj.evaluate(ns))
@@ -481,7 +518,7 @@ def evaluate_rule(rule, match):
     yield from eval_rule_items(rule)
 
 
-def pre_evaluate(obj, ns):
+def pre_evaluate(obj: Any, ns: Namespace) -> tuple[Any, int]:
     """Pre-evaluate any object, that may or may not be an Item.
 
     Returns a two-tuple(result, success). The namespace `ns` is a dictionary
@@ -509,7 +546,7 @@ def pre_evaluate(obj, ns):
     return obj, 3
 
 
-def pre_evaluate_rule(rule, arg):
+def pre_evaluate_rule(rule: Iterable[Any], arg: Any) -> tuple[Any, ...]:
     """Evaluate all RuleItem objects that can be evaluated in the rule.
 
     The specified ``arg`` provides the value for the ARG variable. Rule items
@@ -518,7 +555,7 @@ def pre_evaluate_rule(rule, arg):
 
     """
     ns = {'arg': arg}
-    def pre_eval_rule_items(objs):
+    def pre_eval_rule_items(objs: Iterable[Any]) -> Iterator[Any]:
         for obj in objs:
             if isinstance(obj, RuleItem):
                 yield from util.unroll(obj.pre_evaluate(ns)[0])
@@ -535,7 +572,7 @@ def pre_evaluate_rule(rule, arg):
     return ()
 
 
-def needs_evaluation(rule):
+def needs_evaluation(rule: Iterable[Any]) -> bool:
     """Return True if there are items in the rule that need evaluating."""
     for item in rule:
         if isinstance(item, PostponedItem):
@@ -547,7 +584,7 @@ def needs_evaluation(rule):
     return False
 
 
-def variations_tree(rule):
+def variations_tree(rule: Iterable[Any]) -> tuple[Any, ...]:
     """Return a tuple with the tree structure of all possible variations.
 
     Branches (choices) are indicated by a frozenset, which contains
@@ -557,15 +594,15 @@ def variations_tree(rule):
     items = tuple(rule)
     for i, item in enumerate(items):
         if isinstance(item, Item):
-            branch = [variations_tree(util.unroll(v)) for v in item.variations()]
-            if branch:
-                branch = branch[0] if len(branch) == 1 else frozenset(branch)
+            branches = [variations_tree(util.unroll(v)) for v in item.variations()]
+            if branches:
+                branch = branches[0] if len(branches) == 1 else frozenset(branches)
                 return (*items[:i], branch, *variations_tree(items[i+1:]))
     else:
         return items
 
 
-def variations(rule):
+def variations(rule: Iterable[Any]) -> Iterator[Any]:
     """Yield all possible variations of the rule."""
     items = tuple(rule)
     for i, item in enumerate(items):
