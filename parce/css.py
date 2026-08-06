@@ -83,7 +83,7 @@ from .transform import Transform, transform_text
 #: dict is in ``block``; when there is no block, ``block`` is None.
 Atrule = collections.namedtuple("Atrule", "keyword contents block")
 Atrule.keyword.__doc__  = "The identifier directly after the ``@``."
-Atrule.contents.__doc__ = "The tokens between de keyword and the block."
+Atrule.contents.__doc__ = "The tokens between the keyword and the block."
 Atrule.block.__doc__    = "The block between ``{`` ... ``}``."
 
 #: A normal rule
@@ -96,7 +96,7 @@ Condition = collections.namedtuple("Condition", "keyword node style")
 Condition.keyword.__doc__ = "The keyword after the ``@``."
 Condition.node.__doc__ = ("The contents after the keyword and before the block,"
     " or the query after the filename of an ``@import`` rule.")
-Condition.style.__doc__ = "The :class:`Style` representing the rules in the block."
+Condition.style.__doc__ = "The :class:`StyleSheet` representing the rules in the block."
 
 #: A named tuple holding the (r, g, b, a) value of a color.
 Color = collections.namedtuple("Color", "r g b a")
@@ -121,18 +121,18 @@ class StyleSheet:
     such as @media, @document and @supports are translated into Condition
     tuples, and other @-rules are put in Atrule tuples.
 
-    A Rule consists of ``selectors`` and ``properties``. The ``selectors``
-    are the tokens in a rule before the {. The ``properties`` is a dict
-    mapping css property names to the list of tokens representing their
-    value.
+    A Rule consists of ``prelude`` and ``properties``. The ``prelude``
+    is the list of selector lists in a rule before the {. The ``properties``
+    is a dict mapping css property names to the list of tokens representing
+    their value.
 
     A Condition consists of ``keyword``, ``node`` and ``style``; the ``node``
-    is Css.atrule context containing all text from the @ upto the opening {.
-    The ``style`` is another StyleSheet object representing the nested
-    style sheet.
+    is the tuple of values between the keyword and the opening {. The
+    ``style`` is another StyleSheet object representing the nested style
+    sheet.
 
-    An Atrule tuple consists of ``keyword`` and ``node``, where the node is the
-    Css.atrule context.
+    An Atrule tuple consists of ``keyword``, ``contents`` and ``block``, where
+    the ``contents`` is the tuple of values between the keyword and the block.
 
     You can combine stylesheets from different files or sources using the +
     operator.
@@ -285,10 +285,9 @@ class StyleSheet:
         """Return a new StyleSheet object where conditions are filtered out.
 
         For Condition instances with the specified keyword, the predicate is
-        called with the contents of the ``rule`` (the full Atrule) of
-        each Condition, and if the return value doesn't evaluate to True, the
-        Condition is removed from the resulting set. Conditions with other
-        keywords are kept.
+        called with the Condition itself, and if the return value doesn't
+        evaluate to True, the Condition is removed from the resulting set.
+        Conditions with other keywords are kept.
 
         Currently (CSS3), Conditions have the "media", "supports" or "document"
         keyword. @import rules that have a media query after the filename
@@ -297,7 +296,8 @@ class StyleSheet:
         For example, this is a crude way to only get the @media rules for
         "screen"::
 
-            filter_conditions("media", lambda rule: "screen" in rule.contents)
+            filter_conditions("media", lambda rule: any(
+                isinstance(v, Value) and v.text == "screen" for v in rule.node))
 
         Of course, a better parser for @media expressions could be written :-)
 
