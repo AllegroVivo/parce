@@ -667,7 +667,7 @@ class AbstractElement:
 
 
 class Element(AbstractElement, list):
-    """Mimic an Element CSS selector rules are matched with.
+    r"""Mimic an Element CSS selector rules are matched with.
 
     Use "class\_" when specifying the class with a keyword argument.
     You can also manipulate the attributes after instantiating.
