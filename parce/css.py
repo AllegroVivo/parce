@@ -383,7 +383,6 @@ class Style:
             if element.match(rule.prelude):
                 yield rule
 
-    @style_query
     def select_lxml_element(self, element):
         """Select the rules that match with lxml.etree.Element."""
         return self.select_element(LxmlElement(element))
