@@ -27,8 +27,10 @@ We also use this parser inside parce, to be able to store default
 highlighting formats in css files.
 
 """
+from __future__ import annotations
 
-__all__ = ('Css', 'CssIndent', 'CssIO')
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 import collections
 import re
@@ -40,6 +42,14 @@ from parce.action import (
 from parce.rule import TEXT, bygroup, ifmember, ifeq, anyof
 from parce.indent import Indent, INDENT, DEDENT
 from parce import docio
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.ruleitem import RuleItem
+    from parce.standardaction import StandardAction
+    from parce.tree import Token
+
+__all__ = ('Css', 'CssIndent', 'CssIO')
 
 
 RE_CSS_ESCAPE = r"\\(?:[0-9A-Fa-f]{1,6} ?|.)"
@@ -53,12 +63,12 @@ RE_HEX_COLOR = r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{5}|[0-9a-fA-F]{3}|[0-9a-fA-F]?)"
 
 class Css(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """Toplevel items: at-rules, comments, normal rules."""
         yield from cls.toplevel()
 
     @classmethod
-    def toplevel(cls):
+    def toplevel(cls) -> Iterator[LexiconRule]:
         """Find toplevel items: at-rules, comments, normal rules."""
         yield r"@", Keyword, cls.atrule, cls.atrule_keyword
         yield r"/\*", Comment, cls.comment
@@ -66,14 +76,14 @@ class Css(Language):
         yield default_target, cls.prelude
 
     @lexicon
-    def prelude(cls):
+    def prelude(cls) -> Iterator[LexiconRule]:
         """The prelude of a rule: one or more selectors. On ``{`` parse the rule."""
         yield r"\{", Bracket, -1, cls.rule
         yield r"(?=</)", None, -1   # back off if HTML </style> tag follows...
         yield from cls.selectors()
 
     @classmethod
-    def selectors(cls):
+    def selectors(cls) -> Iterator[LexiconRule]:
         """Yield selectors, used in prelude and selector_list."""
         yield r"\s+", skip              # skip whitespace
         yield r"[>+~]|\|\|", Operator   # combinators
@@ -84,7 +94,7 @@ class Css(Language):
         yield default_target, cls.selector
 
     @lexicon
-    def selector(cls):
+    def selector(cls) -> Iterator[LexiconRule]:
         """All types of CSS selectors"""
         yield r"\*", Keyword    # "any" element
         yield r"\|", Keyword    # css selector namespace prefix separator
@@ -97,25 +107,25 @@ class Css(Language):
         yield default_target, -1
 
     @lexicon
-    def selector_list(cls):
+    def selector_list(cls) -> Iterator[LexiconRule]:
         """The list of selectors in :is(bla, bla), etc."""
         yield r"\)", Delimiter, -2  # also leave the pseudo_class context
         yield from cls.selectors()
 
     @lexicon
-    def rule(cls):
+    def rule(cls) -> Iterator[LexiconRule]:
         """Declarations of a qualified rule between { and }."""
         yield r"\}", Bracket, -1
         yield from cls.inline()
 
     @lexicon
-    def inline(cls):
+    def inline(cls) -> Iterator[LexiconRule]:
         """CSS in a rule block, or in an HTML style attribute."""
         yield from anyof(cls.property, cls.declaration, cls.property)
         yield from cls.common()
 
     @lexicon
-    def declaration(cls):
+    def declaration(cls) -> Iterator[LexiconRule]:
         """A property: value;  declaration."""
         yield r":", Delimiter
         yield r";", Delimiter, -1
@@ -125,7 +135,7 @@ class Css(Language):
         yield default_target, -1
 
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         """Find stuff that can be everywhere, string, comment, color, identifier"""
         yield r'"', String, cls.dqstring
         yield r"'", String, cls.sqstring
@@ -138,48 +148,48 @@ class Css(Language):
         yield r"[:,;@%!]", Delimiter
 
     @lexicon
-    def unit(cls):
+    def unit(cls) -> Iterator[LexiconRule]:
         """Unit directly after a number, e.g. the ``px`` in 100px, also ``%``."""
         yield "%", Operator.Percent, -1
         yield from cls.identifier_common(Name.Unit)
 
     # ------------ selectors for identifiers in different roles --------------
     @classmethod
-    def identifier_common(cls, action):
+    def identifier_common(cls, action: StandardAction | RuleItem) -> Iterator[LexiconRule]:
         """Yield an ident-token and give it the specified action."""
         yield RE_CSS_ESCAPE, Escape
         yield r"[\w-]+", action
         yield default_target, -1
 
     @lexicon(consume=True)
-    def element_selector(cls):
+    def element_selector(cls) -> Iterator[LexiconRule]:
         """A tag name used as selector."""
         yield from cls.identifier_common(Name.Tag)
 
     @lexicon(consume=True)
-    def property(cls):
+    def property(cls) -> Iterator[LexiconRule]:
         """A CSS property."""
         from .css_words import CSS3_ALL_PROPERTIES
         action = ifmember(TEXT, CSS3_ALL_PROPERTIES, Name.Property.Definition, Name.Property)
         yield from cls.identifier_common(action)
 
     @lexicon
-    def attribute(cls):
+    def attribute(cls) -> Iterator[LexiconRule]:
         """An attribute name."""
         yield from cls.identifier_common(Name.Attribute)
 
     @lexicon
-    def id_selector(cls):
+    def id_selector(cls) -> Iterator[LexiconRule]:
         """An ID selecter: ``#id``."""
         yield from cls.identifier_common(Name.Identifier.Definition)
 
     @lexicon
-    def class_selector(cls):
+    def class_selector(cls) -> Iterator[LexiconRule]:
         """A class selector: ``.classname``."""
         yield from cls.identifier_common(Name.Class)
 
     @lexicon
-    def attribute_selector(cls):
+    def attribute_selector(cls) -> Iterator[LexiconRule]:
         """Stuff between ``[`` and ``]``."""
         yield r"\]", Delimiter, -1
         yield r"[~|^$*]?=", Operator
@@ -190,50 +200,50 @@ class Css(Language):
         yield default_action, Invalid
 
     @lexicon
-    def pseudo_class(cls):
+    def pseudo_class(cls) -> Iterator[LexiconRule]:
         """Things like :first-child etc."""
         yield r"\(", Delimiter, cls.selector_list
         yield from cls.identifier_common(Name.Class.Pseudo)
 
     @lexicon
-    def pseudo_element(cls):
+    def pseudo_element(cls) -> Iterator[LexiconRule]:
         """Things like ::first-letter etc."""
         yield from cls.identifier_common(Name.Tag.Pseudo)
 
     # --------------------- @-rule ------------------------
     @lexicon
-    def atrule(cls):
+    def atrule(cls) -> Iterator[LexiconRule]:
         """Contents following '@'."""
         yield r"\{", Bracket, cls.atrule_block
         yield from cls.atrule_common()
 
     @lexicon
-    def atrule_nested(cls):
+    def atrule_nested(cls) -> Iterator[LexiconRule]:
         """An atrule that has nested toplevel contents (@media, etc.)"""
         yield r"\{", Bracket, cls.atrule_nested_block
         yield r";", Delimiter, -2  # ends the whole @-rule: leave atrule too
         yield from cls.atrule_common()
 
     @lexicon
-    def atrule_keyword(cls):
+    def atrule_keyword(cls) -> Iterator[LexiconRule]:
         """The first identifier word in an @-rule."""
         yield r"(media|supports|document)\b", Keyword, -1, cls.atrule_nested
         yield from cls.identifier_common(Keyword)
 
     @lexicon
-    def atrule_block(cls):
+    def atrule_block(cls) -> Iterator[LexiconRule]:
         """A ``{`` ``}`` block from an @-rule."""
         yield r"\}", Bracket, -2  # immediately leave the atrule context
         yield from cls.inline()
 
     @lexicon
-    def atrule_nested_block(cls):
+    def atrule_nested_block(cls) -> Iterator[LexiconRule]:
         """A ``{`` ``}`` block from @media, @document or @supports."""
         yield r"\}", Bracket, -3  # immediately leave the atrule_nested context
         yield from cls.toplevel()
 
     @classmethod
-    def atrule_common(cls):
+    def atrule_common(cls) -> Iterator[LexiconRule]:
         """Find common stuff inside @-rules."""
         yield r";", Delimiter, -1
         yield r":", Keyword, cls.pseudo_class
@@ -241,12 +251,12 @@ class Css(Language):
         yield r'(?=</)', None, -1   # leave atrule when </style tag follows
 
     @lexicon(consume=True)
-    def ident_token(cls):
+    def ident_token(cls) -> Iterator[LexiconRule]:
         """An ident-token where quoted or unquoted text is allowed."""
         yield from cls.identifier_common(Name.Symbol)
 
     @lexicon(consume=True)
-    def identifier(cls):
+    def identifier(cls) -> Iterator[LexiconRule]:
         """An ident-token that could be a color or a function()."""
         from .css_words import CSS3_NAMED_COLORS
         action = ifeq(TEXT, "transparent", Literal.Color,
@@ -255,7 +265,7 @@ class Css(Language):
         yield from cls.identifier_common(action)
 
     @lexicon
-    def function(cls):
+    def function(cls) -> Iterator[LexiconRule]:
         """Contents between identifier( ... )."""
         yield r"\)", Delimiter, -2  # go straight out of the identifier context
         yield r"\(", Delimiter, 1
@@ -263,7 +273,7 @@ class Css(Language):
         yield r"[*/+-]", Operator
 
     @lexicon
-    def url_function(cls):
+    def url_function(cls) -> Iterator[LexiconRule]:
         """The ``url`` function: ``url(``...``)``."""
         yield r"\)", Delimiter, -1
         yield r'"', String, cls.dqstring
@@ -273,19 +283,19 @@ class Css(Language):
         yield default_action, Literal.Url
 
     @lexicon
-    def dqstring(cls):
+    def dqstring(cls) -> Iterator[LexiconRule]:
         """A double-quoted string."""
         yield r'"', String, -1
         yield from cls.string()
 
     @lexicon
-    def sqstring(cls):
+    def sqstring(cls) -> Iterator[LexiconRule]:
         """A single-quoted string."""
         yield r"'", String, -1
         yield from cls.string()
 
     @classmethod
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         """Common rules for string."""
         yield default_action, String
         yield RE_CSS_ESCAPE, String.Escape
@@ -293,7 +303,7 @@ class Css(Language):
         yield r"\n", Invalid, -1
 
     @lexicon
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         """A comment."""
         yield r"\*/", Comment, -1
         yield from cls.comment_common()
@@ -301,7 +311,12 @@ class Css(Language):
 
 class CssIndent(Indent):
     """Indenter for Css."""
-    def events(self, block, tokens, prev_indents):
+    def events(
+        self,
+        block: Any,
+        tokens: Iterable[Token],
+        prev_indents: Any
+    ) -> Iterator[Any]:
         for t in tokens:
             if t.action is Bracket:
                 if t == "{":
@@ -312,14 +327,15 @@ class CssIndent(Indent):
 
 class CssIO(docio.IO):
     """I/O handling for Css."""
-    def default_encoding(self):
+    def default_encoding(self) -> str:
         """Return "utf-8" by default."""
         return "utf-8"
 
-    def find_encoding(self, text):
+    def find_encoding(self, text: str) -> str | None:
         """Find encoding in Css."""
         m = re.search(r'@charset\s*"([\w_-]+)"', text)
         if m:
             return m.group(1)
+        return None
 
 
