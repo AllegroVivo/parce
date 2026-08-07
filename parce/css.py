@@ -76,10 +76,10 @@ from typing import TYPE_CHECKING, NamedTuple, Any, Concatenate, Self, cast
 
 from . import action as a, util
 from .lang.css import Css
-from .transform import Transform, transform_text
+from .transform import Transform, transform_text, Item, ItemList
 
 if TYPE_CHECKING:
-    pass
+    from parce.tree import Token
 
 #: The contents of an at-rule: values, with delimiting tokens as plain strings.
 type CssContents = tuple[Value | str, ...]
@@ -95,6 +95,8 @@ type CssBlock = CssRules | CssProperties | None
 type CssPropertyValue = list[Value | str]
 #: A rule's properties: property name -> value list.
 type CssProperties = dict[str, CssPropertyValue]
+#: What a Transform method receives: an ItemList, or a plain list when sliced.
+type CssItems = Sequence[Item | Token]
 
 
 class Atrule(NamedTuple):
@@ -924,21 +926,21 @@ class CssTransform(Transform):
         [<Value text='red', color=Color(r=255, g=0, b=0, a=1.0)>]})]
 
     """
-    def root(self, items):
+    def root(self, items: ItemList) -> CssRules:
         """Return a list of Rule or Atrule tuples."""
-        result = []
-        prelude = None
+        result: CssRules = []
+        prelude: CssPrelude = []
         for name, obj in items.items():
             if name == "prelude":
                 prelude = obj
             elif name == "rule":
                 result.append(Rule(prelude, obj))
-                prelude = None
+                prelude = []
             elif name == "atrule":
                 result.append(obj)
         return result
 
-    def prelude(self, items):
+    def prelude(self, items: CssItems) -> CssPrelude:
         r"""Return a Css prelude.
 
         A prelude is a list of selector lists. A Css prelude that contains a
@@ -954,8 +956,8 @@ class CssTransform(Transform):
         whitespace in between.
 
         """
-        prelude = []
-        result = []
+        prelude: CssPrelude = []
+        result: list[dict[str, Any] | str] = []
         for i in items:
             if i.is_token:
                 if i == ',':
@@ -963,7 +965,7 @@ class CssTransform(Transform):
                     result = []
                 elif i.action is a.Operator:
                     if result and isinstance(result[-1], dict):
-                        # dont append operator at start, or two operators
+                        # don't append operator at start, or two operators
                         result.append(i.text)
             elif i.name == "selector":
                 if result and isinstance(result[-1], dict):
@@ -981,7 +983,7 @@ class CssTransform(Transform):
         prelude = [selectors for selectors in prelude if selectors]
         return prelude
 
-    def selector(self, items):
+    def selector(self, items: ItemList) -> dict[str, list[Any]]:
         """Return a dictionary object.
 
         The possible keys are: "element_selector", "id_selector",
@@ -996,47 +998,48 @@ class CssTransform(Transform):
         "*" is ignored, '|' is not yet handled.
 
         """
-        d = collections.defaultdict(list)
+        d: collections.defaultdict[str, list[Any]] = collections.defaultdict(list)
         for name, obj in items.items():
             d[name].append(obj)
         return dict(d)
 
-    def selector_list(self, items):
+    def selector_list(self, items: CssItems) -> CssPrelude:
         """Stuff inside :not(), :is(), etc."""
         # skip the closing ) which is normally there
         if items and items[-1] == ')':
             items = items[:-1]
         return self.prelude(items)
 
-    def rule(self, items):
+    def rule(self, items: ItemList) -> CssProperties:
         """A Css rule, between { ... }."""
         return self.inline(items)
 
-    def inline(self, items):
+    def inline(self, items: ItemList) -> CssProperties:
         """Return a dictionary of the property values."""
-        d = {}
+        d: CssProperties = {}
         for name, obj in items.items():
             if obj and name == "declaration":
                 prop, values = obj
                 d[prop] = values
         return d
 
-    def declaration(self, items):
+    def declaration(self, items: CssItems) -> tuple[str, CssPropertyValue] | None:
         """Return a two-tuple(property, value).
 
         The value is a list of Value instances from :meth:`common`.
 
         """
-        items = iter(items)
-        for i in items:
+        it = iter(items)
+        for i in it:
             if not i.is_token and i.name == "property":
                 propname = i.obj
                 values = list(self.common(i
-                        for i in items if i not in (':', ';')))
+                        for i in it if i not in (':', ';')))
                 return propname, values
+        return None
 
-    def unit(self, items):
-        """Return the name of the unit in itens."""
+    def unit(self, items: CssItems) -> str:
+        """Return the name of the unit in items."""
         if items and items[0] == "%":
             return '%'
         return self.get_ident_token(items)[0]

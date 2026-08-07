@@ -31,7 +31,7 @@ See also the documentation: :doc:`transforming`.
 from __future__ import annotations
 
 from collections.abc import Sequence, Iterator, Callable
-from typing import TYPE_CHECKING, NamedTuple, Any
+from typing import Literal, TYPE_CHECKING, NamedTuple, Any
 
 import collections
 import weakref
@@ -56,7 +56,7 @@ class Item(NamedTuple):
     """The return value of the transform method."""
 
     @property
-    def is_token(self) -> bool:
+    def is_token(self) -> Literal[False]:
         """Property to make it easier to distinguish tokens and Item instances."""
         return False
 
@@ -94,7 +94,7 @@ class ItemList(list["Item | Token"]):
         """
         for i in self:
             if i.is_token:
-                yield i  # type: ignore[misc]  # `i.is_token` means we're always getting a Token
+                yield i
 
     def items(self) -> Iterator[Item]:
         """Yield only the Items, ignoring any Token instances.
@@ -108,7 +108,7 @@ class ItemList(list["Item | Token"]):
         """
         for i in self:
             if not i.is_token:
-                yield i  # type: ignore[misc]  # `not i.is_token` means we're always getting an Item
+                yield i
 
     def grouped_objects(self, *names: str) -> Iterator[list[str | None]]:
         """Yield objects in groups, specified by the names.
