@@ -741,68 +741,75 @@ class AbstractElement:
         return True
 
 
-class Element(AbstractElement, list):
+class Element(AbstractElement, list["Element"]):
     r"""Mimic an Element CSS selector rules are matched with.
 
     Use "class\_" when specifying the class with a keyword argument.
     You can also manipulate the attributes after instantiating.
 
     """
-    def __init__(self, name="", parent=None, pseudo_classes=None, pseudo_elements=None, **attrs):
+    def __init__(
+        self,
+        name: str = "",
+        parent: Element | None = None,
+        pseudo_classes: list[str] | None = None,
+        pseudo_elements: list[str] | None = None,
+        **attrs: str
+    ) -> None:
         super().__init__()
-        self.name = name
-        self.parent = parent
-        self.pseudo_classes = pseudo_classes or []
-        self.pseudo_elements = pseudo_elements or []
-        self.attrs = attrs
+        self.name: str = name
+        self.parent: Element | None = parent
+        self.pseudo_classes: list[str] = pseudo_classes or []
+        self.pseudo_elements: list[str] = pseudo_elements or []
+        self.attrs: dict[str, str] = attrs
         if "class" not in attrs and "class_" in attrs:
             attrs["class"] = attrs["class_"]
             del attrs["class_"]
         if parent:
             parent.append(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         return self is other
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         return self is not other
 
-    def get_name(self):
+    def get_name(self) -> str:
         """Implemented to return the element's name."""
         return self.name
 
-    def get_parent(self):
+    def get_parent(self) -> Element | None:
         """Implemented to return the parent Element or None."""
         return self.parent
 
-    def get_attributes(self):
+    def get_attributes(self) -> dict[str, str]:
         """Implemented to return a dictionary of attributes."""
         return self.attrs
 
-    def get_pseudo_classes(self):
+    def get_pseudo_classes(self) -> list[str]:
         """Implemented to return a list of pseudo classes."""
         return self.pseudo_classes
 
-    def get_pseudo_elements(self):
-        """Implemented to return a list of pseudo elements."""
+    def get_pseudo_elements(self) -> list[str]:
+        """Implemented to return a list of pseudo-elements."""
         return self.pseudo_elements
 
-    def children(self):
+    def children(self) -> Iterator[Element]:
         """Implemented to yield our children."""
         yield from self
 
-    def get_child_count(self):
+    def get_child_count(self) -> int:
         """Implemented to return the number of children."""
         return len(self)
 
-    def previous_siblings(self):
+    def previous_siblings(self) -> Iterator[Element]:
         """Yield our previous siblings in backward order."""
         if self.parent is not None:
             i = self.parent.index(self)
             if i:
                 yield from self.parent[i-1::-1]
 
-    def next_siblings(self):
+    def next_siblings(self) -> Iterator[Element]:
         """Yield our next siblings in forward order."""
         if self.parent is not None:
             i = self.parent.index(self)
@@ -811,47 +818,47 @@ class Element(AbstractElement, list):
 
 class LxmlElement(AbstractElement):
     """An Element wrapping an element from a lxml.etree tree."""
-    def __init__(self, element):
-        self.e = element
+    def __init__(self, element: Any) -> None:
+        self.e: Any = element
 
-    def get_name(self):
+    def get_name(self) -> str:
         """Return the element's name."""
         return self.e.tag
 
-    def get_parent(self):
+    def get_parent(self) -> LxmlElement | None:
         """Return the parent Element or None."""
         parent = self.e.getparent()
         if parent is None:
             return None
         return type(self)(parent)
 
-    def get_attributes(self):
+    def get_attributes(self) -> dict[str, str]:
         """Return a dictionary of attributes, keys and values are str."""
         return self.e.attrib
 
-    def get_pseudo_classes(self):
+    def get_pseudo_classes(self) -> list[str]:
         """Implement to return a list of pseudo classes."""
         return []
 
-    def get_pseudo_elements(self):
+    def get_pseudo_elements(self) -> list[str]:
         """Implement to return a list of pseudo-elements."""
         return []
 
-    def children(self):
+    def children(self) -> Iterator[LxmlElement]:
         """Yield our children."""
         for n in self.e:
             yield type(self)(n)
 
-    def get_child_count(self):
+    def get_child_count(self) -> int:
         """Return the number of children."""
         return len(self.e)
 
-    def previous_siblings(self):
+    def previous_siblings(self) -> Iterator[LxmlElement]:
         """Yield our previous siblings in backward order."""
         for n in self.e.itersiblings(preceding=True):
             yield type(self)(n)
 
-    def next_siblings(self):
+    def next_siblings(self) -> Iterator[LxmlElement]:
         """Yield our next siblings in forward order."""
         for n in self.e.itersiblings():
             yield type(self)(n)
