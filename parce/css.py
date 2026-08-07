@@ -96,6 +96,7 @@ type CssPropertyValue = list[Value | str]
 #: A rule's properties: property name -> value list.
 type CssProperties = dict[str, CssPropertyValue]
 
+
 class Atrule(NamedTuple):
     """An at-rule.
 
@@ -115,7 +116,7 @@ class Rule(NamedTuple):
     """A normal rule."""
     prelude: CssPrelude
     """The list of selector lists, see :meth:`Css.prelude`."""
-    properties: dict[str, list[Value]]
+    properties: CssProperties
     """The dictionary of Css properties."""
 
 
@@ -445,25 +446,25 @@ class Style:
         return '<{} ({} rules)>'.format(self.__class__.__name__, len(self.rules))
 
     @style_query
-    def select_element(self, element):
+    def select_element(self, element: AbstractElement) -> Iterator[Rule]:
         """Select the rules that match with Element."""
         for rule in self.rules:
             if element.match(rule.prelude):
                 yield rule
 
-    def select_lxml_element(self, element):
+    def select_lxml_element(self, element: Any) -> Style:
         """Select the rules that match with lxml.etree.Element."""
         return self.select_element(LxmlElement(element))
 
-    def properties(self):
+    def properties(self) -> dict[str, list[Value]]:
         """Return the combined properties of the current set of rules. (Endpoint.)
 
         Returns a dictionary with the properties. The value of each property
         is a list of Value instances.
 
         """
-        result = {}
-        important_properties = set()
+        result: dict[str, list[Value]] = {}
+        important_properties: set[str] = set()
         for rule in self.rules:
             for key, value in rule.properties.items():
                 important = False
@@ -471,25 +472,25 @@ class Style:
                     value = value[:-1]
                     important = True
                 if key not in result:
-                    result[key] = value
+                    result[key] = cast("list[Value]", value)
                     if important:
                         important_properties.add(key)
                 elif important and key not in important_properties:
-                    result[key] = value
+                    result[key] = cast("list[Value]", value)
                     important_properties.add(key)
         return result
 
 
 class Atrules:
     """Represents the @rules that are not nested, e.g. @page etc."""
-    def __init__(self, rules):
-        self.rules = rules
+    def __init__(self, rules: Sequence[Atrule]) -> None:
+        self.rules: Sequence[Atrule] = rules
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{} ({} rules)>'.format(self.__class__.__name__, len(self.rules))
 
     @style_query
-    def select(self, *keywords):
+    def select(self, *keywords: str) -> Iterator[Atrule]:
         for r in self.rules:
             if r.keyword in keywords:
                 yield r
@@ -520,53 +521,53 @@ class AbstractElement:
 
     _pseudo_class = util.Dispatcher()
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         """Always return True."""
         return True
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         attrs = reprlib.repr(self.get_attributes())
         count = self.get_child_count()
         return "<Element {} {} ({} children)>".format(self.get_name(),
             attrs, count)
 
-    def get_name(self):
+    def get_name(self) -> str:
         """Implement to return the element's name."""
         return ""
 
-    def get_parent(self):
+    def get_parent(self) -> AbstractElement | None:
         """Implement to return the parent Element or None."""
         return None
 
-    def get_attributes(self):
+    def get_attributes(self) -> dict[str, str]:
         """Implement to return a dictionary of attributes, keys and values are str."""
         return {}
 
-    def get_pseudo_classes(self):
+    def get_pseudo_classes(self) -> list[str]:
         """Implement to return a list of pseudo classes."""
         return []
 
-    def get_pseudo_elements(self):
-        """Implement to return a list of pseudo elements."""
+    def get_pseudo_elements(self) -> list[str]:
+        """Implement to return a list of pseudo-elements."""
         return []
 
-    def children(self):
+    def children(self) -> Iterator[AbstractElement]:
         """Implement to yield our children."""
         yield from ()
 
-    def get_child_count(self):
+    def get_child_count(self) -> int:
         """Implement to return the number of children."""
         return 0
 
-    def previous_siblings(self):
+    def previous_siblings(self) -> Iterator[AbstractElement]:
         """Implement to yield our previous siblings in backward order."""
         yield from ()
 
-    def next_siblings(self):
+    def next_siblings(self) -> Iterator[AbstractElement]:
         """Implement to yield our next siblings in forward order."""
         yield from ()
 
-    def get_classes(self):
+    def get_classes(self) -> Sequence[str]:
         """Return a tuple of classes, by default from the 'class' attribute.
 
         The returned tuple may be empty, when there are no class names.
@@ -577,68 +578,72 @@ class AbstractElement:
             return d.get("class", "").split()
         return ()
 
-    def get_id(self):
+    def get_id(self) -> str | None:
         """Return the id or None, by default read from the 'id' attribute."""
         d = self.get_attributes()
         if d:
             return d.get("id")
+        return None
 
-    def next_sibling(self):
+    def next_sibling(self) -> AbstractElement | None:
         """Return the next sibling."""
         for e in self.next_siblings():
             return e
+        return None
 
-    def previous_sibling(self):
+    def previous_sibling(self) -> AbstractElement | None:
         """Return the previous sibling."""
         for e in self.previous_siblings():
             return e
+        return None
 
     @_pseudo_class('first-child')
-    def is_first_child(self):
+    def is_first_child(self) -> bool:
         """Return True if we are the first child."""
         return not self.previous_sibling()
 
     @_pseudo_class('last-child')
-    def is_last_child(self):
+    def is_last_child(self) -> bool:
         """Return True if we are the last child."""
         return not self.next_sibling()
 
     @_pseudo_class('only-child')
-    def is_only_child(self):
+    def is_only_child(self) -> bool:
         """Return True if we are the only child."""
         return not self.next_sibling() and not self.previous_sibling()
 
     @_pseudo_class('first-of-type')
-    def is_first_of_type(self):
+    def is_first_of_type(self) -> bool:
         """Return True if we are the first of our type."""
         name = self.get_name()
         return not any(e.get_name() == name for e in self.previous_siblings())
 
     @_pseudo_class('last-of-type')
-    def is_last_of_type(self):
+    def is_last_of_type(self) -> bool:
         """Return True if we are the last of our type."""
         name = self.get_name()
         return not any(e.get_name() == name for e in self.next_siblings())
 
     @_pseudo_class('empty')
-    def is_empty(self):
+    def is_empty(self) -> bool:
         """Return True if we have no child elements."""
         return not self.get_child_count()
 
-    def match(self, prelude):
+    def match(self, prelude: CssPrelude) -> bool:
         """Match with a compound selector expression (``prelude`` part of Rule)."""
         return any(self.match_selectors(selectors) for selectors in prelude)
 
-    def match_selectors(self, selectors):
+    def match_selectors(self, selectors: list[dict[str, Any] | str]) -> bool:
         """Match with a list of selectors with operators in between."""
-        selectors = iter(reversed(selectors))
-        sel = next(selectors, None)
+        it: Iterator[Any] = iter(reversed(selectors))
+        sel = next(it, None)
         if not sel or not self.match_selector(sel):
             return False
-        element = self
-        operator = next(selectors, None)
-        sel = next(selectors, None)
+        element: AbstractElement | None = self
+        operator = next(it, None)
+        sel = next(it, None)
         while operator and sel:
+            assert element is not None
             if operator == ">":
                 # parent should match
                 element = element.get_parent()
@@ -668,11 +673,11 @@ class AbstractElement:
                         break
                 else:
                     return False
-            operator = next(selectors, None)
-            sel = next(selectors, None)
+            operator = next(it, None)
+            sel = next(it, None)
         return True
 
-    def match_selector(self, selector):
+    def match_selector(self, selector: dict[str, Any]) -> bool:
         """Match with a single CSS selector dictionary.
 
         Returns True if the element matches with the selector.
