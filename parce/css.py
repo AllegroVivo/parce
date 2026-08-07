@@ -820,7 +820,10 @@ class LxmlElement(AbstractElement):
 
     def get_parent(self):
         """Return the parent Element or None."""
-        return type(self)(self.e.getparent())
+        parent = self.e.getparent()
+        if parent is None:
+            return None
+        return type(self)(parent)
 
     def get_attributes(self):
         """Return a dictionary of attributes, keys and values are str."""
@@ -831,7 +834,7 @@ class LxmlElement(AbstractElement):
         return []
 
     def get_pseudo_elements(self):
-        """Implement to return a list of pseudo elements."""
+        """Implement to return a list of pseudo-elements."""
         return []
 
     def children(self):
