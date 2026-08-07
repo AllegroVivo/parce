@@ -405,6 +405,8 @@ class Style:
                     important = True
                 if key not in result:
                     result[key] = value
+                    if important:
+                        important_properties.add(key)
                 elif important and key not in important_properties:
                     result[key] = value
                     important_properties.add(key)
