@@ -1299,7 +1299,9 @@ class CssTransform(Transform):
         """
         n = value.number
         if value.unit == "%":
-            n = n * maximum // 100
+            n = n * maximum / 100
+            if isinstance(maximum, int):
+                n = int(n)
         if n < 0: n = 0
         if n > maximum: n = maximum
         return n
