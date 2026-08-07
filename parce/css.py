@@ -1261,8 +1261,10 @@ class CssTransform(Transform):
         Called by :meth:`sqstring` and :meth:`dqstring`.
 
         """
-        for i in items.tokens():
-            if i.action is String:
+        for i in items:
+            if not i.is_token:
+                continue
+            if i.action is a.String:
                 yield i.text
             elif i.action is a.String.Escape:
                 yield self.get_escape(i.text)
