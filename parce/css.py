@@ -233,7 +233,7 @@ class StyleSheet:
 
             """
             for n, v in enumerate(values):
-                if isinstance(v, Value) and v.text or v.url:
+                if isinstance(v, Value) and (v.text or v.url):
                     fname = v.text or v.url
                     fname = os.path.join(os.path.dirname(filename), fname)
                     # avoid circular @import references
