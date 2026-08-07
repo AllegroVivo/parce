@@ -96,6 +96,7 @@ type CssPropertyValue = list[Value | str]
 #: A rule's properties: property name -> value list.
 type CssProperties = dict[str, CssPropertyValue]
 
+
 class Atrule(NamedTuple):
     """An at-rule.
 
@@ -115,7 +116,7 @@ class Rule(NamedTuple):
     """A normal rule."""
     prelude: CssPrelude
     """The list of selector lists, see :meth:`Css.prelude`."""
-    properties: dict[str, list[Value]]
+    properties: CssProperties
     """The dictionary of Css properties."""
 
 
@@ -445,25 +446,25 @@ class Style:
         return '<{} ({} rules)>'.format(self.__class__.__name__, len(self.rules))
 
     @style_query
-    def select_element(self, element):
+    def select_element(self, element: AbstractElement) -> Iterator[Rule]:
         """Select the rules that match with Element."""
         for rule in self.rules:
             if element.match(rule.prelude):
                 yield rule
 
-    def select_lxml_element(self, element):
+    def select_lxml_element(self, element: Any) -> Style:
         """Select the rules that match with lxml.etree.Element."""
         return self.select_element(LxmlElement(element))
 
-    def properties(self):
+    def properties(self) -> dict[str, list[Value]]:
         """Return the combined properties of the current set of rules. (Endpoint.)
 
         Returns a dictionary with the properties. The value of each property
         is a list of Value instances.
 
         """
-        result = {}
-        important_properties = set()
+        result: dict[str, list[Value]] = {}
+        important_properties: set[str] = set()
         for rule in self.rules:
             for key, value in rule.properties.items():
                 important = False
@@ -471,25 +472,25 @@ class Style:
                     value = value[:-1]
                     important = True
                 if key not in result:
-                    result[key] = value
+                    result[key] = cast("list[Value]", value)
                     if important:
                         important_properties.add(key)
                 elif important and key not in important_properties:
-                    result[key] = value
+                    result[key] = cast("list[Value]", value)
                     important_properties.add(key)
         return result
 
 
 class Atrules:
     """Represents the @rules that are not nested, e.g. @page etc."""
-    def __init__(self, rules):
-        self.rules = rules
+    def __init__(self, rules: Sequence[Atrule]) -> None:
+        self.rules: Sequence[Atrule] = rules
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{} ({} rules)>'.format(self.__class__.__name__, len(self.rules))
 
     @style_query
-    def select(self, *keywords):
+    def select(self, *keywords: str) -> Iterator[Atrule]:
         for r in self.rules:
             if r.keyword in keywords:
                 yield r
