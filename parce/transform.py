@@ -40,12 +40,14 @@ from . import util
 from parce.tree import Token
 
 if TYPE_CHECKING:
-    from parce.tree import Context, Node
-    from parce._types import RootLexicon, MaybeLexicon
+    from parce.tree import Context, Node, Token
+    from parce._types import RootLexicon
     from parce.lexicon import Lexicon
     from parce.treebuilder import TreeBuilder
     from parce.language import Language
 
+#: What a Transform method receives: an ItemList, or a plain list when sliced.
+type TransformItems = Sequence[Item | Token]
 
 class Item(NamedTuple):
     """A named tuple(name, obj) wrapping the return value of a Transform method."""

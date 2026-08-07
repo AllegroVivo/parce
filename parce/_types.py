@@ -1,25 +1,39 @@
+"""
+Shared type aliases for parce's annotations.
+
+This module exists only for the type checker: everything in it is a PEP 695
+``type`` alias, whose right-hand side is evaluated lazily.
+
+The module is named ``_types`` and not ``types`` on purpose: a
+``parce/types.py`` would shadow the stdlib :mod:`types` module whenever the
+package directory ends up on ``sys.path``, and `parce.util` imports the
+real one.
+"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from parce.tree import Context, Token
     from parce.lexicon import Lexicon
     from parce.standardaction import StandardAction
-    from parce.document import AbstractTextRange
-    from parce.transform import Transformer
 
-type RootLexicon = Lexicon | Literal[False] | None
-type Lexeme = tuple[int, str, StandardAction]
+# --- Tree Nodes ---
+#: Any real node of a token tree, as ``Node`` is effectively abstract.
 type ContextOrToken = Context | Token
-type ChangeTuple = tuple[int, int, str]
-#: A lexicon rule: (pattern, action, *targets) - position determines meaning.
+
+# --- Lexing ---
+#: The root lexicon slot of a tree or builder: a Lexicon, None for "no
+#: lexicon", or False meaning "leave the current root lexicon unchanged".
+type RootLexicon = Lexicon | Literal[False] | None
+
+#: One lexed token before tree building: ``(pos, text, action)``.
+type Lexeme = tuple[int, str, StandardAction]
+
+#: A lexicon rule: (pattern, action, *targets).
 type LexiconRule = tuple[Any, ...]
 
-type MaybeContext = Context | None
-type MaybeToken = Token | None
-type MaybeLexicon = Lexicon | None
-type MaybeTransformer =  Transformer | None
+# --- Documents ---
+#: A single text change: ``(start, end, text)``
+type ChangeTuple = tuple[int, int, str]
 
-type IntOrSlice = int | slice
-type DocumentKey = IntOrSlice | AbstractTextRange

@@ -52,10 +52,11 @@ from . import util
 
 if TYPE_CHECKING:
     from parce.treebuilder import TreeBuilder
-    from parce._types import MaybeTransformer, RootLexicon, MaybeLexicon
+    from parce._types import RootLexicon
     from parce.tree import Context, Token
     from parce.lexicon import Lexicon
     from parce.document import AbstractDocument
+    from parce.transform import Transformer
 
 
 IDLE      = 0       # result is up-to-date
@@ -103,10 +104,10 @@ class Worker(util.Observable):
         without arguments.
 
     """
-    def __init__(self, treebuilder: TreeBuilder, transformer: MaybeTransformer = None) -> None:
+    def __init__(self, treebuilder: TreeBuilder, transformer: Transformer | None = None) -> None:
         super().__init__()
         self._builder: TreeBuilder = treebuilder
-        self._transformer: MaybeTransformer = transformer
+        self._transformer: Transformer | None = transformer
 
         self._condition: threading.Condition = threading.Condition()
         self._transform_lock: threading.Lock = threading.Lock() # prevent setting Transformer without noticing
@@ -120,7 +121,7 @@ class Worker(util.Observable):
         """Return the TreeBuilder we were initialized with."""
         return self._builder
 
-    def set_transformer(self, transformer: MaybeTransformer) -> None:
+    def set_transformer(self, transformer: Transformer | None) -> None:
         """Set the Transformer to use.
 
         You may use one Transformer for multiple Workers.  Use None to
@@ -138,7 +139,7 @@ class Worker(util.Observable):
             if start:
                 self.start()
 
-    def transformer(self) -> MaybeTransformer:
+    def transformer(self) -> Transformer | None:
         """Return the current Transformer, if set."""
         return self._transformer
 
@@ -389,10 +390,10 @@ class WorkerDocumentMixin(_DocumentBase):
     """
     def __init__(
         self,
-        root_lexicon: MaybeLexicon = None,
+        root_lexicon: Lexicon | None = None,
         text: str = "",
         worker: Worker | None = None,
-        transformer: MaybeTransformer | Literal[True] = None
+        transformer: Transformer | None | Literal[True] = None
     ):
         """Initialize with a :class:`Worker` instance, which is doing the work."""
         if transformer is True:
@@ -419,11 +420,11 @@ class WorkerDocumentMixin(_DocumentBase):
         """Return the worker's TreeBuilder."""
         return self._worker._builder
 
-    def transformer(self) -> MaybeTransformer:
+    def transformer(self) -> Transformer | None:
         """Return the worker's Transformer, if set."""
         return self._worker._transformer
 
-    def set_transformer(self, transformer: MaybeTransformer) -> None:
+    def set_transformer(self, transformer: Transformer | None) -> None:
         """Set a new Transformer in the worker.
 
         Specify None to remove the current transformer.
@@ -433,7 +434,7 @@ class WorkerDocumentMixin(_DocumentBase):
         """
         self._worker.set_transformer(transformer)
 
-    def root_lexicon(self) -> MaybeLexicon:
+    def root_lexicon(self) -> Lexicon | None:
         """Return the currently set root lexicon."""
         return self.builder().root.lexicon
 

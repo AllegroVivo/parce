@@ -38,7 +38,7 @@ from types import TracebackType
 from typing import Self, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from parce._types import ChangeTuple, IntOrSlice
+    from parce._types import ChangeTuple
 
 
 class AbstractMutableString:
@@ -128,7 +128,7 @@ class AbstractMutableString:
         """Implement the + operator. Returns a new, plain str instance."""
         return text + self.text()
 
-    def __setitem__(self, key: IntOrSlice, text: str) -> None:
+    def __setitem__(self, key: int | slice, text: str) -> None:
         """Replace the position or slice with text."""
         start, end = self._parse_key(key)
         if ((text or start != end) and
@@ -137,11 +137,11 @@ class AbstractMutableString:
             if not self._edit_context:
                 self._apply_changes()
 
-    def __delitem__(self, key: IntOrSlice) -> None:
+    def __delitem__(self, key: int | slice) -> None:
         """Delete the character or slice of text."""
         self[key] = ""
 
-    def __getitem__(self, key: IntOrSlice) -> str:
+    def __getitem__(self, key: int | slice) -> str:
         """Get a character or a slice of text."""
         start, end = self._parse_key(key)
         if start == end:
@@ -150,7 +150,7 @@ class AbstractMutableString:
             return self.text()
         return self._get_text(start, end)
 
-    def _parse_key(self, key: IntOrSlice) -> tuple[int, int]:
+    def _parse_key(self, key: int | slice) -> tuple[int, int]:
         """Get start and end values from key. Called by __[gs]etitem__."""
         total = len(self)
         if isinstance(key, slice):
