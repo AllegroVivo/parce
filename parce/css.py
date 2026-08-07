@@ -71,7 +71,7 @@ import functools
 import os
 import re
 import reprlib
-from collections.abc import Callable, Iterator, Iterable
+from collections.abc import Callable, Iterator, Iterable, Sequence
 from typing import TYPE_CHECKING, NamedTuple, Any, Concatenate, Self, cast
 
 from . import action as a, util
@@ -90,7 +90,11 @@ type CssRule = Rule | Atrule | Condition
 #: The rule list of a stylesheet, or of a nested at-rule's block.
 type CssRules = list[CssRule]
 #: An at-rule's block: nested rules, a properties dict, or nothing at all.
-type CssBlock = CssRules | dict[str, list[Value]] | None
+type CssBlock = CssRules | CssProperties | None
+#: A property's value: Values, possibly ending in the "!important" marker.
+type CssPropertyValue = list[Value | str]
+#: A rule's properties: property name -> value list.
+type CssProperties = dict[str, CssPropertyValue]
 
 class Atrule(NamedTuple):
     """An at-rule.
@@ -434,10 +438,10 @@ class Style:
     apply to the selected rules.
 
     """
-    def __init__(self, rules):
-        self.rules = rules
+    def __init__(self, rules: Sequence[Rule]) -> None:
+        self.rules: Sequence[Rule] = rules
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{} ({} rules)>'.format(self.__class__.__name__, len(self.rules))
 
     @style_query
