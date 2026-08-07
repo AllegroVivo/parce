@@ -144,7 +144,7 @@ def style_query[S, **P](
     """Make a generator method return a new Style/StyleSheet/Atrules object."""
     @functools.wraps(func)
     def wrapper(self: S, *args: P.args, **kwargs: P.kwargs) -> S:
-        return cast("S", type(self)(list(func(self, *args, **kwargs))))
+        return type(self)(list(func(self, *args, **kwargs)))  # type: ignore[call-arg]
     return wrapper
 
 
@@ -280,7 +280,7 @@ class StyleSheet:
 
         """
         filenames = {filename}
-        imported_filenames = []
+        imported_filenames: list[str] = []
 
         def get_import_rules(values: CssContents) -> Iterator[CssRule]:
             """Yield rules from an @import at-rule.
