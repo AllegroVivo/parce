@@ -280,6 +280,7 @@ class StyleSheet:
 
         """
         filenames = {filename}
+        imported_filenames = []
 
         def get_import_rules(values: CssContents) -> Iterator[CssRule]:
             """Yield rules from an @import at-rule.
@@ -302,7 +303,7 @@ class StyleSheet:
                             s = cls.from_css(icss, fname, path, allow_import)
                             yield Condition("import", values, s)
                         else:
-                            self._imported_filenames.append(fname)
+                            imported_filenames.append(fname)
                             yield from get_rules(icss)
                     return
 
@@ -329,7 +330,9 @@ class StyleSheet:
                 rules.append(rule)
             return rules
 
-        return cls(get_rules(css), filename)
+        sheet = cls(get_rules(css), filename)
+        sheet._imported_filenames = imported_filenames
+        return sheet
 
     def __add__(self, other: StyleSheet) -> Self:
         """Create a new StyleSheet by appending the other's rules."""
