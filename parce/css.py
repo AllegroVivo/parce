@@ -64,53 +64,87 @@ Example::
     'font-family': [<Value text='serif'>], 'font-style': [<Value text='italic'>]}
 
 """
-
+from __future__ import annotations
 
 import collections
 import functools
 import os
 import re
 import reprlib
+from collections.abc import Callable, Iterator, Iterable
+from typing import TYPE_CHECKING, NamedTuple, Any, Concatenate, Self, cast
 
-from . import action as a
-from . import util
+from . import action as a, util
 from .lang.css import Css
 from .transform import Transform, transform_text
 
+if TYPE_CHECKING:
+    pass
 
-#: An at-rule. For nested atrules the nested stylesheet is in a list ``block``,
-#: for other at-rules that end with a rule with properties, the properties
-#: dict is in ``block``; when there is no block, ``block`` is None.
-Atrule = collections.namedtuple("Atrule", "keyword contents block")
-Atrule.keyword.__doc__  = "The identifier directly after the ``@``."
-Atrule.contents.__doc__ = "The tokens between the keyword and the block."
-Atrule.block.__doc__    = "The block between ``{`` ... ``}``."
+#: The contents of an at-rule: values, with delimiting tokens as plain strings.
+type CssContents = tuple[Value | str, ...]
+#: A list of selector lists; each is selector dicts with operators in between.
+type CssPrelude = list[list[dict[str, Any] | str]]
+#: A single item in a stylesheet: a normal rule, an at-rule, or a conditional.
+type CssRule = Rule | Atrule | Condition
+#: The rule list of a stylesheet, or of a nested at-rule's block.
+type CssRules = list[CssRule]
+#: An at-rule's block: nested rules, a properties dict, or nothing at all.
+type CssBlock = CssRules | dict[str, list[Value]] | None
 
-#: A normal rule
-Rule = collections.namedtuple("Rule", "prelude properties")
-Rule.prelude.__doc__    = "The list of selector lists, see :meth:`Css.prelude`."
-Rule.properties.__doc__ = "The dictionary of Css properties."
+class Atrule(NamedTuple):
+    """An at-rule.
 
-#: A conditional at-rule
-Condition = collections.namedtuple("Condition", "keyword node style")
-Condition.keyword.__doc__ = "The keyword after the ``@``."
-Condition.node.__doc__ = ("The contents after the keyword and before the block,"
-    " or the query after the filename of an ``@import`` rule.")
-Condition.style.__doc__ = "The :class:`StyleSheet` representing the rules in the block."
-
-#: A named tuple holding the (r, g, b, a) value of a color.
-Color = collections.namedtuple("Color", "r g b a")
-Color.r.__doc__ = "The red value, integer in the range 0..255."
-Color.g.__doc__ = "The green value, integer in the range 0..255."
-Color.b.__doc__ = "The blue value, integer in the range 0..255."
-Color.a.__doc__ = "The opacity, float in the range 0..1."
+    For nested atrules the nested stylesheet is in a list ``block``,
+    for other at-rules that end with a rule with properties, the properties
+    dict is in ``block``; when there is no block, ``block`` is None.
+    """
+    keyword: str | None
+    """The identifier directly after the ``@``."""
+    contents: CssContents
+    """The tokens between the keyword and the block."""
+    block: CssBlock
+    """The block between ``{`` ... ``}``."""
 
 
-def style_query(func):
+class Rule(NamedTuple):
+    """A normal rule."""
+    prelude: CssPrelude
+    """The list of selector lists, see :meth:`Css.prelude`."""
+    properties: dict[str, list[Value]]
+    """The dictionary of Css properties."""
+
+
+class Condition(NamedTuple):
+    """A conditional at-rule."""
+    keyword: str | None
+    """The keyword after the ``@``."""
+    node: CssContents
+    """The contents after the keyword and before the block,
+    or the query after the filename of an ``@import`` rule."""
+    style: StyleSheet
+    """The :class:`StyleSheet` representing the rules in the block."""
+
+
+class Color(NamedTuple):
+    """A named tuple holding the (r, g, b, a) value of a color."""
+    r: int
+    """The red value, integer in the range 0..255."""
+    g: int
+    """The green value, integer in the range 0..255."""
+    b: int
+    """The blue value, integer in the range 0..255."""
+    a: float
+    """The opacity, float in the range 0..1."""
+
+
+def style_query[S, **P](
+    func: Callable[Concatenate[S, P], Iterable[Any]]
+) -> Callable[Concatenate[S, P], S]:
     """Make a generator method return a new Style/StyleSheet/Atrules object."""
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        return type(self)(list(func(self, *args, **kwargs)))
+    def wrapper(self: S, *args: P.args, **kwargs: P.kwargs) -> S:
+        return cast("S", type(self)(list(func(self, *args, **kwargs))))
     return wrapper
 
 
@@ -143,20 +177,20 @@ class StyleSheet:
     at-rules.
 
     """
-    filename = ""   #: our filename, if we were loaded from a file
+    filename: str = ""   #: our filename, if we were loaded from a file
 
-    def __init__(self, rules=None, filename=""):
+    def __init__(self, rules: CssRules | None = None, filename: str = "") -> None:
         """Initialize a StyleSheet, empty of with the supplied rules/conditions."""
-        self.rules = rules or []
-        self.filename = filename
-        self._imported_filenames = []
+        self.rules: CssRules = rules or []
+        self.filename: str = filename
+        self._imported_filenames: list[str] = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         fnames = ', '.join(map(os.path.basename, self.filenames()))
         return '<{} [{}]>'.format(self.__class__.__name__, fnames)
 
     @classmethod
-    def load_from_data(cls, data):
+    def load_from_data(cls, data: bytes) -> CssRules:
         """Return a Css.root tree from data, handling the encoding."""
         encoding, data = util.get_bom_encoding(data)
         if not encoding:
@@ -169,17 +203,22 @@ class StyleSheet:
         return cls.load_from_text(text)
 
     @staticmethod
-    def load_from_text(text):
+    def load_from_text(text: str) -> CssRules:
         """Return a CSS structure from text."""
         return transform_text(Css.root, text, CssTransform())
 
     @classmethod
-    def load_from_file(cls, filename):
+    def load_from_file(cls, filename: str) -> CssRules:
         """Return a CSS structure from filename, handling the encoding."""
         return cls.load_from_data(open(filename, 'rb').read())
 
     @classmethod
-    def from_file(cls, filename, path=None, allow_import=True):
+    def from_file(
+        cls,
+        filename: str,
+        path: Any = None,
+        allow_import: bool = True
+    ) -> Self:
         """Return a new StyleSheet adding Rules and Conditions from a local filename.
 
         The ``path`` argument is currently unused. If ``allow_import`` is
@@ -190,7 +229,13 @@ class StyleSheet:
         return cls.from_css(css, filename, path, allow_import)
 
     @classmethod
-    def from_text(cls, text, filename='', path=None, allow_import=True):
+    def from_text(
+        cls,
+        text: str,
+        filename: str = '',
+        path: Any = None,
+        allow_import: bool = True
+    ) -> Self:
         """Return a new StyleSheet adding Rules and Conditions from a string.
 
         The ``filename`` argument is used to handle @import rules
@@ -202,7 +247,13 @@ class StyleSheet:
         return cls.from_css(css, filename, path, allow_import)
 
     @classmethod
-    def from_data(cls, data, filename='', path=None, allow_import=True):
+    def from_data(
+        cls,
+        data: bytes,
+        filename: str = '',
+        path: Any = None,
+        allow_import: bool = True
+    ) -> Self:
         """Return a new StyleSheet adding Rules and Conditions from a bytes string.
 
         The ``filename`` argument is used to handle @import rules
@@ -214,7 +265,13 @@ class StyleSheet:
         return cls.from_css(css, filename, path, allow_import)
 
     @classmethod
-    def from_css(cls, css, filename='', path=None, allow_import=True):
+    def from_css(
+        cls,
+        css: CssRules,
+        filename: str = '',
+        path: Any = None,
+        allow_import: bool = True
+    ) -> Self:
         """Return a new StyleSheet adding Rules and Conditions from a CSS structure.
 
         The ``filename`` argument is used to handle @import rules
@@ -224,7 +281,7 @@ class StyleSheet:
         """
         filenames = {filename}
 
-        def get_import_rules(values):
+        def get_import_rules(values: CssContents) -> Iterator[CssRule]:
             """Yield rules from an @import at-rule.
 
             If the @import rule has a media query after the filename/url,
@@ -249,7 +306,7 @@ class StyleSheet:
                             yield from get_rules(icss)
                     return
 
-        def get_rules(css):
+        def get_rules(css: CssRules) -> CssRules:
             """Get all CSS rules from the CSS structure, either as Rule or
             as Condition.
 
@@ -257,7 +314,7 @@ class StyleSheet:
             on media, document, supports or import at-rules.
 
             """
-            rules = []
+            rules: list[CssRule] = []
 
             for rule in css:
                 if isinstance(rule, Atrule):
@@ -274,14 +331,18 @@ class StyleSheet:
 
         return cls(get_rules(css), filename)
 
-    def __add__(self, other):
+    def __add__(self, other: StyleSheet) -> Self:
         """Create a new StyleSheet by appending the other's rules."""
         new = type(self)(self.rules + other.rules)
         new._imported_filenames = list(set(self.filenames() + other.filenames()))
         return new
 
     @style_query
-    def filter_conditions(self, keyword, predicate):
+    def filter_conditions(
+        self,
+        keyword: str,
+        predicate: Callable[[Condition], Any]
+    ) -> Iterator[CssRule]:
         """Return a new StyleSheet object where conditions are filtered out.
 
         For Condition instances with the specified keyword, the predicate is
@@ -309,14 +370,14 @@ class StyleSheet:
             else:
                 yield r
 
-    def filenames(self):
+    def filenames(self) -> list[str]:
         """Return a list of filenames the currently selected rules depend on.
 
         Our own filename will be the first in the list, and filenames of
         ``@import``-ed rules that are still selected are appended to the list.
 
         """
-        def get_filenames(sheet):
+        def get_filenames(sheet: StyleSheet) -> Iterator[str]:
             if sheet.filename:
                 yield sheet.filename
             yield from sheet._imported_filenames
@@ -326,14 +387,14 @@ class StyleSheet:
         return list(get_filenames(self))
 
     @property
-    def style(self):
+    def style(self) -> Style:
         """Return a Style object with the remaining rules.
 
         All rules that still are behind a condition, are let through.
         The rules are sorted on specificity.
 
         """
-        def get_rules(rules):
+        def get_rules(rules: CssRules) -> Iterator[Rule]:
             for r in rules:
                 if isinstance(r, Condition):
                     yield from get_rules(r.style.rules)
@@ -345,13 +406,13 @@ class StyleSheet:
         return Style(rules)
 
     @property
-    def at(self):
+    def at(self) -> Atrules:
         """Return an Atrules object containing the remaining at-rules.
 
         All rules that still are behind a condition, are let through.
 
         """
-        def get_rules(rules):
+        def get_rules(rules: CssRules) -> Iterator[Atrule]:
             for r in rules:
                 if isinstance(r, Condition):
                     yield from get_rules(r.style.rules)
