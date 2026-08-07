@@ -21,8 +21,10 @@
 """
 Parser for LilyPond syntax.
 """
+from __future__ import annotations
 
-__all__ = ('LilyPond', 'LilyPondIndent')
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 import re
 
@@ -37,6 +39,16 @@ from parce.indent import Indent, ALIGN, INDENT, DEDENT, NO_DEDENT
 from parce import docio
 
 from . import lilypond_words
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.lexicon import Lexicon
+    from parce.ruleitem import RuleItem
+    from parce.standardaction import StandardAction
+    from parce.tree import Token
+
+
+__all__ = ('LilyPond', 'LilyPondIndent')
 
 
 SKIP_WHITESPACE = (r"\s+", skip)
@@ -88,7 +100,7 @@ Fingering = Number.Fingering
 class LilyPond(Language):
 
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """Toplevel LilyPond document."""
         yield from cls.blocks()
         yield RE_LILYPOND_SYMBOL, findmember(TEXT, (
@@ -103,7 +115,7 @@ class LilyPond(Language):
         yield from cls.commands(list_target=cls.start_list)
 
     @classmethod
-    def blocks(cls):
+    def blocks(cls) -> Iterator[LexiconRule]:
         yield r"(\\book(?:part)?)\s*(\{)", bygroup(Keyword, Bracket.Start), cls.book
         yield r"(\\score)\s*(\{)", bygroup(Keyword, Bracket.Start), cls.score
         yield r"(\\header)\s*(\{)", bygroup(Keyword, Bracket.Start), cls.header
@@ -112,12 +124,12 @@ class LilyPond(Language):
         yield r"(\\midi)\s*(\{)", bygroup(Keyword, Bracket.Start), cls.midi
 
     @lexicon(consume=True)
-    def book(cls):
+    def book(cls) -> Iterator[LexiconRule]:
         """Book or bookpart."""
         yield from cls.score
 
     @lexicon(consume=True)
-    def score(cls):
+    def score(cls) -> Iterator[LexiconRule]:
         """A score block."""
         yield r'\}', Bracket.End, -1
         yield from cls.blocks()
@@ -126,7 +138,7 @@ class LilyPond(Language):
         yield from cls.commands()
 
     @lexicon(consume=True)
-    def header(cls):
+    def header(cls) -> Iterator[LexiconRule]:
         """A header block."""
         yield r'\}', Bracket.End, -1
         yield RE_LILYPOND_SYMBOL, Name.Attribute, cls.list
@@ -136,12 +148,12 @@ class LilyPond(Language):
         yield from cls.commands()
 
     @lexicon(consume=True)
-    def paper(cls):
+    def paper(cls) -> Iterator[LexiconRule]:
         """A paper block."""
         yield from cls.header
 
     @lexicon(consume=True)
-    def layout(cls):
+    def layout(cls) -> Iterator[LexiconRule]:
         """A layout block."""
         yield r'\}', Bracket.End, -1
         yield RE_LILYPOND_SYMBOL, Name.Attribute, cls.list
@@ -151,12 +163,12 @@ class LilyPond(Language):
         yield from cls.commands(list_target=cls.start_list)
 
     @lexicon(consume=True)
-    def midi(cls):
+    def midi(cls) -> Iterator[LexiconRule]:
         """A midi block."""
         yield from cls.layout
 
     @lexicon(consume=True)
-    def layout_context(cls):
+    def layout_context(cls) -> Iterator[LexiconRule]:
         r"""Contents of ``\layout`` or ``\midi { \context { } }`` or ``\with. { }``."""
         yield r'\}', Bracket.End, -1
         yield RE_LILYPOND_SYMBOL, findmember(TEXT, (
@@ -171,7 +183,7 @@ class LilyPond(Language):
 
     # ------------------ commands that can occur in all input modes --------
     @classmethod
-    def commands(cls, *, list_target=0):
+    def commands(cls, *, list_target: int | Lexicon = 0) -> Iterator[LexiconRule]:
         """Yield commands that can occur in all input modes.
 
         If a ``list_target`` is given, that lexicon is pushed after a Keyword,
@@ -214,7 +226,7 @@ class LilyPond(Language):
 
     # ------------------ music ----------------------
     @classmethod
-    def music(cls):
+    def music(cls) -> Iterator[LexiconRule]:
         """Musical items."""
         yield from cls.find_string(cls.list)
         yield from cls.find_scheme(cls.list)
@@ -249,7 +261,7 @@ class LilyPond(Language):
         yield r"\d+", Number, cls.list
 
     @lexicon(consume=True)
-    def musiclist(cls):
+    def musiclist(cls) -> Iterator[LexiconRule]:
         """A ``{`` ... ``}`` or ``<<`` ... ``>>`` musical construct.
 
         Derive with the end arg (``}`` or ``>>``).
@@ -261,7 +273,7 @@ class LilyPond(Language):
         yield from cls.commands()
 
     @lexicon(consume=True)
-    def chord(cls):
+    def chord(cls) -> Iterator[LexiconRule]:
         """A ``<`` chord ``>`` construct."""
         yield r">", Delimiter.Chord.End, -1
         yield from cls.music()
@@ -270,7 +282,7 @@ class LilyPond(Language):
 
     # ------------------ repeat -------------------------
     @lexicon
-    def repeat(cls):
+    def repeat(cls) -> Iterator[LexiconRule]:
         """\\repeat mode n."""
         yield SKIP_WHITESPACE
         yield words(("volta", "unfold", "percent", "tremolo"), suffix=r'\b'), Name.Type
@@ -281,7 +293,7 @@ class LilyPond(Language):
 
     # ------------------ script -------------------------
     @lexicon
-    def script(cls):
+    def script(cls) -> Iterator[LexiconRule]:
         """A script abbreviation or fingering digit."""
         yield r"[+|!>._^-]", Script, -1
         yield r"\d+", Fingering, -1
@@ -290,7 +302,7 @@ class LilyPond(Language):
 
     # ------------------ pitch --------------------------
     @classmethod
-    def ifpitch(cls, itemlist=None, else_itemlist=None):
+    def ifpitch(cls, itemlist: Any = None, else_itemlist: Any = None) -> RuleItem:
         """Return a rule item that by default yields Name.Pitch for a pitch, else Name.Symbol."""
         if itemlist is None:
             itemlist = Name.Pitch
@@ -299,7 +311,7 @@ class LilyPond(Language):
         return ifmember(TEXT, lilypond_words.all_pitch_names, itemlist, else_itemlist)
 
     @lexicon
-    def pitch(cls):
+    def pitch(cls) -> Iterator[LexiconRule]:
         """A note name, find octave/accidental etc after it."""
         yield r",(?:\s*?,)*|'(?:\s*?')*", Octave
         yield r"[?!]", Accidental
@@ -310,7 +322,7 @@ class LilyPond(Language):
 
     # ------------------ duration ------------------------
     @lexicon
-    def duration(cls):
+    def duration(cls) -> Iterator[LexiconRule]:
         """Zero or more dots after a duration. """
         yield SKIP_WHITESPACE
         yield r'\.', Duration.Dot
@@ -318,7 +330,7 @@ class LilyPond(Language):
         yield default_target, cls.duration_scaling
 
     @lexicon
-    def duration_scaling(cls):
+    def duration_scaling(cls) -> Iterator[LexiconRule]:
         """ ``*n/m`` after a duration. """
         yield SKIP_WHITESPACE
         #yield from cls.find_comment()
@@ -327,7 +339,7 @@ class LilyPond(Language):
 
     # --------------------- input modes ------------------
     @classmethod
-    def inputmode(cls, lexicon):
+    def inputmode(cls, lexicon: Lexicon) -> Iterator[LexiconRule]:
         """Yield boilerplate rules for an input mode."""
         yield SKIP_WHITESPACE
         yield r"\\s(equential|imultaneous)\b", Keyword
@@ -337,7 +349,7 @@ class LilyPond(Language):
         yield default_target, -1
 
     @classmethod
-    def inputmode_list(cls, lexicon):
+    def inputmode_list(cls, lexicon: Lexicon) -> Iterator[LexiconRule]:
         """Yield boilerplate rules for the contents of an input mode."""
         yield arg(), Bracket.End, -1
         yield r"<<", Bracket.Start, lexicon('>>')
@@ -345,17 +357,17 @@ class LilyPond(Language):
 
     # --------------------- lyrics -----------------------
     @lexicon
-    def lyricmode(cls):
+    def lyricmode(cls) -> Iterator[LexiconRule]:
         """Yield contents in lyric mode."""
         yield from cls.inputmode(cls.lyriclist)
 
     @lexicon
-    def lyricsto(cls):
+    def lyricsto(cls) -> Iterator[LexiconRule]:
         r"""Find the argument of a ``\lyricsto`` command."""
         yield default_target, -1, cls.lyricmode
 
     @lexicon(consume=True)
-    def lyriclist(cls):
+    def lyriclist(cls) -> Iterator[LexiconRule]:
         """Lyrics between ``{`` ... ``}``.
 
         Derive with the desired closing delimiter (``}`` or ``>>``).
@@ -373,7 +385,7 @@ class LilyPond(Language):
         yield from cls.commands(list_target=cls.start_list)
 
     @lexicon
-    def lyricword(cls):
+    def lyricword(cls) -> Iterator[LexiconRule]:
         """Contents of lyric word, highlight tie and space separately."""
         yield '~', LyricText.Tie
         yield '_', LyricText.Space
@@ -381,12 +393,12 @@ class LilyPond(Language):
 
     # ---------------------- drummode ---------------------
     @lexicon
-    def drummode(cls):
+    def drummode(cls) -> Iterator[LexiconRule]:
         """\\drummode and \\drums."""
         yield from cls.inputmode(cls.drumlist)
 
     @lexicon(consume=True)
-    def drumlist(cls):
+    def drumlist(cls) -> Iterator[LexiconRule]:
         """Drum music between ``{`` ... ``}`` or ``<<`` ... ``>>``."""
         yield from cls.inputmode_list(cls.drumlist)
         yield RE_LILYPOND_SYMBOL, findmember(TEXT, (
@@ -400,12 +412,12 @@ class LilyPond(Language):
 
     # ---------------------- chordmode ---------------------
     @lexicon
-    def chordmode(cls):
+    def chordmode(cls) -> Iterator[LexiconRule]:
         """\\chordmode and \\chords."""
         yield from cls.inputmode(cls.chordlist)
 
     @lexicon(consume=True)
-    def chordlist(cls):
+    def chordlist(cls) -> Iterator[LexiconRule]:
         """Chordmode music between ``{`` ... ``}`` or ``<<`` ... ``>>``."""
         yield from cls.inputmode_list(cls.chordlist)
         yield r"[:^]", Separator.Chord, cls.chord_modifier
@@ -415,7 +427,7 @@ class LilyPond(Language):
         yield from cls.commands()
 
     @lexicon
-    def chord_modifier(cls):
+    def chord_modifier(cls) -> Iterator[LexiconRule]:
         """Stuff in chord mode after a `:`"""
         yield SKIP_WHITESPACE
         yield r"((?<![a-z])|^)(?:aug|dim|sus|min|maj|m)(?![a-z])", Name.Symbol
@@ -426,18 +438,18 @@ class LilyPond(Language):
 
     # --------------------- notemode -------------------
     @lexicon
-    def notemode(cls):
+    def notemode(cls) -> Iterator[LexiconRule]:
         """Notemode switches back to music e.g. in lyrics."""
         yield from cls.inputmode(cls.musiclist)
 
     # --------------------- figuremode -------------------
     @lexicon
-    def figuremode(cls):
+    def figuremode(cls) -> Iterator[LexiconRule]:
         """\\figuremode and \\figures."""
         yield from cls.inputmode(cls.figurelist)
 
     @lexicon(consume=True)
-    def figurelist(cls):
+    def figurelist(cls) -> Iterator[LexiconRule]:
         """figuremode music between ``{`` ... ``}`` or ``<<`` ... ``>>``."""
         yield from cls.inputmode_list(cls.figurelist)
         yield r'<', Delimiter.Chord.Start, cls.figure
@@ -447,21 +459,21 @@ class LilyPond(Language):
         yield from cls.commands()
 
     @lexicon(consume=True)
-    def figure(cls):
+    def figure(cls) -> Iterator[LexiconRule]:
         """Stuff between ``<`` and ``>`` in figure mode."""
         yield r'>', Delimiter.Chord.End, -1
         yield r'\[', Bracket.Start, cls.figurebracket
         yield from cls._figure_rules()
 
     @lexicon(consume=True)
-    def figurebracket(cls):
+    def figurebracket(cls) -> Iterator[LexiconRule]:
         """Stuff between ``[`` and ``]`` in a bass figure."""
         yield r'>', Delimiter.Chord.End, -2
         yield r'\]', Bracket.End, -1
         yield from cls._figure_rules()
 
     @classmethod
-    def _figure_rules(cls):
+    def _figure_rules(cls) -> Iterator[LexiconRule]:
         """Rules for figures in [ ] and < >."""
         yield r'_|\d+', Pitch.Figure
         yield r'--?|\+\+?|!', Accidental
@@ -470,21 +482,21 @@ class LilyPond(Language):
 
     # -------------------- base stuff --------------------
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         """Find comment, string, scheme, the ``=`` operator and  markup."""
         yield from cls.base()
         yield "=", Operator.Assignment, cls.start_list
         yield from cls.find_markup()
 
     @classmethod
-    def base(cls):
+    def base(cls) -> Iterator[LexiconRule]:
         """Find comment, string and scheme."""
         yield from cls.find_string()
         yield from cls.find_scheme()
         yield from cls.find_comment()
 
     @lexicon(consume=True)
-    def list(cls):
+    def list(cls) -> Iterator[LexiconRule]:
         r"""A list of numbers, symbols, strings or scheme expressions.
 
         Consumes both . and , as separators.
@@ -506,7 +518,7 @@ class LilyPond(Language):
         yield default_target, -1
 
     @lexicon
-    def start_list(cls):
+    def start_list(cls) -> Iterator[LexiconRule]:
         """Start a list, this context is never created: all contents go to ``list``."""
         yield SKIP_WHITESPACE
         yield from cls.find_string(-1, cls.list)
@@ -518,20 +530,20 @@ class LilyPond(Language):
         yield default_target, -1
 
     @lexicon
-    def _continue_list(cls):
+    def _continue_list(cls) -> Iterator[LexiconRule]:
         """Continue a list, this context is never created: all contents remain in ``list``."""
         yield from cls.find_string(-1)
         yield from cls.find_scheme(-1)
         yield default_target, -1
 
     @lexicon(consume=True)
-    def identifier_ref(cls):
+    def identifier_ref(cls) -> Iterator[LexiconRule]:
         r"""\bla.bla.bla syntax."""
         yield r'(?<=\\)"', String, cls.string   # only after '\'
         yield from cls.list
 
     @classmethod
-    def get_symbol_action(self, text, default=Name.Symbol):
+    def get_symbol_action(self, text: Any, default: StandardAction = Name.Symbol) -> RuleItem:
         """Return a proper dynamic action for the name of a symbol."""
         return findmember(text, (
                 (lilypond_words.grobs, Grob),
@@ -540,28 +552,28 @@ class LilyPond(Language):
 
     # -------------------- markup --------------------
     @classmethod
-    def find_markup(cls):
+    def find_markup(cls) -> Iterator[LexiconRule]:
         r"""Find ``\markup``, ``\markuplines`` and ``\markuplist``."""
         yield r"\\markup(?:lines|list)?" + RE_LILYPOND_ID_RIGHT_BOUND, Keyword.Markup, cls.markup
 
     @lexicon(consume=True)
-    def markup(cls):
+    def markup(cls) -> Iterator[LexiconRule]:
         """Markup without environment. Try to guess the n of arguments."""
         yield from cls._markup_rules(-1)
 
     @lexicon(consume=True)
-    def markuplist(cls):
+    def markuplist(cls) -> Iterator[LexiconRule]:
         """Markup in environment from ``{`` until ``}``."""
         yield r'\}', Bracket.Markup.End, -1
         yield from cls._markup_rules()
 
     @lexicon(consume=True)
-    def markupscore(cls):
+    def markupscore(cls) -> Iterator[LexiconRule]:
         r"""``\score { }`` or ``\score-lines { }`` in markup."""
         yield from cls.score
 
     @classmethod
-    def _markup_rules(cls, *extra_target):
+    def _markup_rules(cls, *extra_target: Any) -> Iterator[LexiconRule]:
         r"""Markup rules. Specify ``-1`` if outside an environment."""
         yield (r'\{', Bracket.Markup.Start, *extra_target, cls.markuplist)
         yield (r"(\\score(?:-lines)?)\s*(\{)", bygroup(Name.Function.Markup, Bracket.Start), *extra_target, cls.markupscore)
@@ -578,7 +590,7 @@ class LilyPond(Language):
         yield (RE_LILYPOND_MARKUP_TEXT, Text, *extra_target)
 
     @classmethod
-    def get_markup_argument_count(cls, command):
+    def get_markup_argument_count(cls, command: str) -> int:
         r"""Return the number of arguments of a markup command (without ``\``) expects.
 
         The default implementation returns 1 for unknown commands. You could
@@ -591,36 +603,36 @@ class LilyPond(Language):
             return 1    # assume a user command has one argument
 
     @classmethod
-    def get_markup_action(cls):
+    def get_markup_action(cls) -> RuleItem:
         r"""Get the action for a command in \markup { }."""
         return ifmember(MATCH[1], lilypond_words.markup_commands, Name.Function.Markup, Name.Function)
 
     # -------------- Scheme ---------------------
     @classmethod
-    def find_scheme(cls, *extra_target):
+    def find_scheme(cls, *extra_target: Any) -> Iterator[LexiconRule]:
         """Find scheme."""
         yield (r'[#$]@?', Delimiter.ModeChange.SchemeStart, *extra_target, cls.get_scheme_target())
 
     @classmethod
-    def get_scheme_target(cls):
+    def get_scheme_target(cls) -> Lexicon:
         """Return the ``one_arg`` lexicon for one Scheme expression."""
         from .scheme import SchemeLily
         return SchemeLily.scheme
 
     @lexicon(consume=True)
-    def schemelily(cls):
+    def schemelily(cls) -> Iterator[LexiconRule]:
         """LilyPond from scheme.SchemeLily #{ #}."""
         yield r"#}", Bracket.LilyPond.End, -1
         yield from cls.root()
 
     # -------------- String ---------------------
     @classmethod
-    def find_string(cls, *extra_target):
+    def find_string(cls, *extra_target: Any) -> Iterator[LexiconRule]:
         """Find a string."""
         yield ('"', String, *extra_target, cls.string)
 
     @lexicon(consume=True)
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         """A double-quoted string."""
         yield r'"', String, -1
         yield r'\\[\\"]', String.Escape
@@ -628,19 +640,19 @@ class LilyPond(Language):
 
     # -------------- Comment ---------------------
     @classmethod
-    def find_comment(cls, *extra_target):
+    def find_comment(cls, *extra_target: Any) -> Iterator[LexiconRule]:
         """Find single-line or block comments."""
         yield (r'%\{', Comment, *extra_target, cls.multiline_comment)
         yield (r'%', Comment, *extra_target, cls.singleline_comment)
 
     @lexicon(consume=True)
-    def multiline_comment(cls):
+    def multiline_comment(cls) -> Iterator[LexiconRule]:
         """A multiple line (block) comment."""
         yield r'%}', Comment, -1
         yield from cls.comment_common()
 
     @lexicon(re_flags=re.MULTILINE, consume=True)
-    def singleline_comment(cls):
+    def singleline_comment(cls) -> Iterator[LexiconRule]:
         """A comment till the end of the line."""
         yield from cls.comment_common()
         yield r'$', Comment, -1
@@ -649,7 +661,12 @@ class LilyPond(Language):
 class LilyPondIndent(Indent):
     """Indenter for LilyPond."""
 
-    def events(self, block, tokens, prev_indents):
+    def events(
+        self,
+        block: Any,
+        tokens: Iterable[Token],
+        prev_indents: Any
+    ) -> Iterator[Any]:
         """Yield indent events."""
         for t in tokens:
             if t.action in Delimiter:
@@ -665,7 +682,7 @@ class LilyPondIndent(Indent):
 
 class LilyPondIO(docio.IO):
     """IO handling."""
-    def default_encoding(self):
+    def default_encoding(self) -> str:
         """Return "utf-8" by default."""
         return "utf-8"
 
