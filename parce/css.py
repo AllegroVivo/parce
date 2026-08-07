@@ -1380,7 +1380,7 @@ def calculate_specificity(prelude):
                 clss += total('attribute_selector', 'class_selector', 'pseudo_class')
                 elts += total('element_selector', 'pseudo_element')
         specificities.append((ids, clss, elts))
-    return max(specificities)
+    return max(specificities) if specificities else (0, 0, 0)
 
 
 def color2hex(color):
