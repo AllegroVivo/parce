@@ -1044,27 +1044,30 @@ class CssTransform(Transform):
             return '%'
         return self.get_ident_token(items)[0]
 
-    def element_selector(self, items):
+    def element_selector(self, items: ItemList) -> str:
         """Return the name of the element_selector."""
         return self.get_ident_token(items)[0]
 
-    def property(self, items):
+    def property(self, items: ItemList) -> str:
         """Return the name of the property."""
         return self.get_ident_token(items)[0]
 
-    def attribute(self, items):
+    def attribute(self, items: ItemList) -> str:
         """Return the name of the attribute."""
         return self.get_ident_token(items)[0]
 
-    def id_selector(self, items):
+    def id_selector(self, items: ItemList) -> str:
         """Return the name of the id_selector."""
         return self.get_ident_token(items)[0]
 
-    def class_selector(self, items):
+    def class_selector(self, items: ItemList) -> str:
         """Return the name of the class_selector."""
         return self.get_ident_token(items)[0]
 
-    def attribute_selector(self, items):
+    def attribute_selector(
+        self,
+        items: ItemList
+    ) -> tuple[str | None, str | None, str | None, str | None]:
         """Return a four-tuple representing the contents between [ and ].
 
         The tuple: (attribute, operator, value, flag).
@@ -1086,7 +1089,7 @@ class CssTransform(Transform):
                     val = i.obj
         return  attr, op, val, flag
 
-    def pseudo_class(self, items):
+    def pseudo_class(self, items: ItemList) -> tuple[str, CssPrelude | None]:
         """Return a tuple(name, selector_list).
 
         The ``name`` is the name of the pseudo class, the selector_list
@@ -1097,17 +1100,17 @@ class CssTransform(Transform):
         name = self.get_ident_token(items)[0]
         selector_list = None
         if items.peek(-1, "selector_list"):
-            selector_list = items[-1].obj
+            selector_list = cast("Item", items[-1]).obj
         return name, selector_list
 
-    def pseudo_element(self, items):
-        """Return the name of the pseudo element."""
+    def pseudo_element(self, items: ItemList) -> str:
+        """Return the name of the pseudo-element."""
         return self.get_ident_token(items)[0]
 
-    def atrule(self, items):
+    def atrule(self, items: ItemList) -> Atrule:
         """Return a Atrule named tuple."""
         if items.peek(0, "atrule_keyword"):
-            keyword = items.pop(0).obj
+            keyword = cast("Item", items.pop(0)).obj
         else:
             keyword = None
         block = None
@@ -1127,27 +1130,27 @@ class CssTransform(Transform):
             contents = tuple(self.common(items))
         return Atrule(keyword, contents, block)
 
-    def atrule_nested(self, items):
+    def atrule_nested(self, items: ItemList) -> tuple[CssContents, CssRules | None]:
         """Return a two-tuple: the stuff before the nested block and the nested block."""
         nested = None
         if items.peek(-1, "atrule_nested_block"):
-            nested = items.pop().obj
+            nested = cast("Item", items.pop()).obj
             items.pop() # skip {
         return tuple(self.common(items)), nested
 
-    def atrule_keyword(self, items):
+    def atrule_keyword(self, items: ItemList) -> str:
         """Return the name of the atrule keyword."""
         return self.get_ident_token(items)[0]
 
-    def atrule_block(self, items):
+    def atrule_block(self, items: ItemList) -> CssProperties:
         """Return the properties dict in an atrule block."""
         return self.inline(items)
 
-    def atrule_nested_block(self, items):
+    def atrule_nested_block(self, items: ItemList) -> CssRules:
         """Return a list of Rule or Atrule tuples."""
         return self.root(items)
 
-    def ident_token(self, items):
+    def ident_token(self, items: ItemList):
         """Return the ident_token."""
         return self.get_ident_token(items)[0]
 
