@@ -80,6 +80,7 @@ from .transform import Transform, transform_text, Item, ItemList
 
 if TYPE_CHECKING:
     from parce.tree import Token
+    from parce.standardaction import StandardAction
 
 #: The contents of an at-rule: values, with delimiting tokens as plain strings.
 type CssContents = tuple[Value | str, ...]
@@ -297,8 +298,7 @@ class StyleSheet:
 
             """
             for n, v in enumerate(values):
-                if isinstance(v, Value) and (v.text or v.url):
-                    fname = v.text or v.url
+                if isinstance(v, Value) and (fname := v.text or v.url):
                     fname = os.path.join(os.path.dirname(filename), fname)
                     # avoid circular @import references
                     if fname not in filenames:
@@ -1038,7 +1038,7 @@ class CssTransform(Transform):
                 return propname, values
         return None
 
-    def unit(self, items: CssItems) -> str:
+    def unit(self, items: ItemList) -> str:
         """Return the name of the unit in items."""
         if items and items[0] == "%":
             return '%'
@@ -1150,11 +1150,11 @@ class CssTransform(Transform):
         """Return a list of Rule or Atrule tuples."""
         return self.root(items)
 
-    def ident_token(self, items: ItemList):
+    def ident_token(self, items: ItemList) -> str:
         """Return the ident_token."""
         return self.get_ident_token(items)[0]
 
-    def identifier(self, items):
+    def identifier(self, items: ItemList) -> Value:
         """Return a Value.
 
         For a color name, returns a Value with a color, otherwise
@@ -1168,7 +1168,7 @@ class CssTransform(Transform):
         """
         text, action = self.get_ident_token(items)
         if items.peek(-1, "function"):
-            funcargs = items[-1].obj
+            funcargs = cast("Item", items[-1]).obj
             return self.get_css_function_call(text, funcargs)
         from .lang.css_words import CSS3_NAMED_COLORS
         if action is a.Literal.Color or text in CSS3_NAMED_COLORS:
@@ -1176,16 +1176,16 @@ class CssTransform(Transform):
             return Value(color=color, text=text)
         return Value(text=text)
 
-    def function(self, items):
+    def function(self, items: CssItems) -> CssContents:
         """Return a list of Value instances and delimiting tokens."""
         # skip the closing ) which is normally there
         if items and items[-1] == ')':
             items = items[:-1]
         return tuple(self.common(items))
 
-    def url_function(self, items):
+    def url_function(self, items: CssItems) -> Value:
         """Return a Value with the url."""
-        def gen():
+        def gen() -> Iterator[str]:
             for i in items:
                 if i.is_token:
                     if i.action is a.Escape:
@@ -1196,13 +1196,13 @@ class CssTransform(Transform):
                     yield i.obj
         return Value(url=''.join(gen()))
 
-    def dqstring(self, items):
+    def dqstring(self, items: CssItems) -> str:
         """Return the contents of a double-quoted string."""
         if items and items[-1] == '"':
             items = items[:-1]
         return ''.join(self.get_string(items))
 
-    def sqstring(self, items):
+    def sqstring(self, items: CssItems) -> str:
         """Return the contents of a single-quoted string."""
         if items and items[-1] == "'":
             items = items[:-1]
@@ -1212,7 +1212,7 @@ class CssTransform(Transform):
     comment = None
 
     ### helper methods
-    def common(self, items):
+    def common(self, items: Iterable[Item | Token]) -> Iterator[Value | str]:
         """Yield any values, see Css.common().
 
         Every item is either a Value instance or a delimiting token.
@@ -1253,7 +1253,7 @@ class CssTransform(Transform):
                 yield i.obj
             i = next(items, None)
 
-    def get_css_function_call(self, name, arguments):
+    def get_css_function_call(self, name: str, arguments: CssContents) -> Value:
         """Return a Value for a CSS function call. Handles rgb/rgba."""
         if name in ('rgb', 'rgba'):
             return Value(color=self.get_rgba_color(arguments))
@@ -1264,14 +1264,14 @@ class CssTransform(Transform):
             return Value(url=text)
         return Value(funcname=name, arguments=arguments)
 
-    def get_number(self, text):
+    def get_number(self, text: str) -> int | float:
         """Get the value of a Number."""
         num = float(text)
         if num.is_integer():
             num = int(num)
         return num
 
-    def get_escape(self, text):
+    def get_escape(self, text: str) -> str:
         """Get the value of escaped text."""
         value = text[1:]
         if value == '\n':
@@ -1282,7 +1282,7 @@ class CssTransform(Transform):
             return value
         return chr(codepoint)
 
-    def get_string(self, items):
+    def get_string(self, items: Iterable[Item | Token]) -> Iterator[str]:
         """Yield the parts of a string.
 
         Called by :meth:`sqstring` and :meth:`dqstring`.
@@ -1296,14 +1296,14 @@ class CssTransform(Transform):
             elif i.action is a.String.Escape:
                 yield self.get_escape(i.text)
 
-    def get_ident_token(self, items):
+    def get_ident_token(self, items: ItemList) -> tuple[str, StandardAction | None]:
         """Return a two-tuple(name, action).
 
         Combines tokens in an identifier context, (see :meth:`Css.identifier_common`).
 
         """
-        actions = [None]
-        def gen():
+        actions: list[StandardAction | None] = [None]
+        def gen() -> Iterator[str]:
             for i in items.tokens():
                 if i.action is a.Escape:
                     yield self.get_escape(i.text)
@@ -1314,7 +1314,7 @@ class CssTransform(Transform):
         name = ''.join(gen())
         return name, actions[-1]
 
-    def get_hex_color(self, text):
+    def get_hex_color(self, text: str) -> Color:
         """Return a named four-tuple Color(r, g, b, a) describing color and alpha.
 
         The ``text`` is a hexadecimal color without the hash, like "FA0042".
@@ -1349,7 +1349,7 @@ class CssTransform(Transform):
             a = (c & 255) / 255
         return Color(r, g, b, a)
 
-    def get_named_color(self, text):
+    def get_named_color(self, text: str) -> Color:
         """Return a named four-tuple Color(r, g, b, a) describing color and alpha.
 
         The ``text`` is a CSS3 color name.
@@ -1358,7 +1358,7 @@ class CssTransform(Transform):
 
         """
         if text == "transparent":
-            r, g, b, a = 0, 0, 0, 0
+            r, g, b, a = 0, 0, 0, 0.0
         else:
             r, g, b, a = -1, -1, -1, 1.0
             from .lang.css_words import CSS3_NAMED_COLORS
@@ -1368,20 +1368,19 @@ class CssTransform(Transform):
                 pass
         return Color(r, g, b, a)
 
-    def get_rgba_color(self, func_args):
+    def get_rgba_color(self, func_args: CssContents) -> Color:
         """Convert the arguments to a rgba(1 2 3 4) call to a Color."""
         values = (v for v in func_args if isinstance(v, Value) and v.number is not None)
-        r = next(values, -1)
-        if r != -1: r = self.get_number_value(r, 255)
-        g = next(values, -1)
-        if g != -1: g = self.get_number_value(g, 255)
-        b = next(values, -1)
-        if b != -1: b = self.get_number_value(b, 255)
-        a = next(values, 1.0)
-        if a != 1.0: a = self.get_number_value(a, 1.0)
-        return Color(r, g, b, a)
+        def channel(default: float, maximum: float) -> float:
+            v = next(values, None)
+            return self.get_number_value(v, maximum) if v is not None else default
+        r = channel(-1, 255)
+        g = channel(-1, 255)
+        b = channel(-1, 255)
+        a = channel(1.0, 1.0)
+        return Color(int(r), int(g), int(b), a)
 
-    def get_number_value(self, value, maximum):
+    def get_number_value(self, value: Value, maximum: int | float) -> int | float:
         """Return a numeric value from the Value object.
 
         If the value object has a percentage, apply it so 100% yields the
@@ -1390,6 +1389,7 @@ class CssTransform(Transform):
 
         """
         n = value.number
+        assert n is not None
         if value.unit == "%":
             n = n * maximum / 100
             if isinstance(maximum, int):
@@ -1426,34 +1426,35 @@ class Value:
     functions, which are handled by the CssTransform class.
 
     """
-    def __init__(self,
-            text = None,
-            number = None,
-            unit = None,
-            url = None,
-            color = None,
-            funcname = None,
-            quoted = None,
-            arguments = (),
-            ):
-        self.text = text
-        self.number = number
-        self.unit = unit
-        self.url = url
-        self.color = color
-        self.funcname = funcname
-        self.quoted = quoted
-        self.arguments = list(arguments)
+    def __init__(
+        self,
+        text: str | None = None,
+        number: int | float | None = None,
+        unit: str | None = None,
+        url: str | None = None,
+        color: Color | None = None,
+        funcname: str | None = None,
+        quoted : bool | None = None,
+        arguments: Iterable[Value | str] = (),
+    ) -> None:
+        self.text: str | None = text
+        self.number: int | float | None = number
+        self.unit: str | None = unit
+        self.url: str | None = url
+        self.color: Color | None = color
+        self.funcname: str | None = funcname
+        self.quoted: bool | None = quoted
+        self.arguments: list[Value | str] = list(arguments)
 
-    def __repr__(self):
-        def gen():
+    def __repr__(self) -> str:
+        def gen() -> Iterator[str]:
             for name, value in self.__dict__.items():
                 if value not in (None, []):
                     yield '{}={}'.format(name, repr(value))
         return '<{} {}>'.format(self.__class__.__name__, ', '.join(gen()))
 
 
-def calculate_specificity(prelude):
+def calculate_specificity(prelude: CssPrelude) -> tuple[int, int, int]:
     """Calculate the specificity of the Css rule prelude.
 
     Returns a three-tuple (ids, clss, elts), where ids is the number of ID
@@ -1464,20 +1465,21 @@ def calculate_specificity(prelude):
     would not be difficult to implement.
 
     """
+    def total(sel: dict[str, Any], *names: str) -> int:
+        return sum(len(sel.get(n, ())) for n in names)
     specificities = []
-    total = lambda *names: sum(len(selector.get(n, ())) for n in names)
     for selectors in prelude:
         ids = clss = elts = 0
         for selector in selectors:
             if isinstance(selector, dict):
-                ids += total('id_selector')
-                clss += total('attribute_selector', 'class_selector', 'pseudo_class')
-                elts += total('element_selector', 'pseudo_element')
+                ids += total(selector, 'id_selector')
+                clss += total(selector, 'attribute_selector', 'class_selector', 'pseudo_class')
+                elts += total(selector, 'element_selector', 'pseudo_element')
         specificities.append((ids, clss, elts))
     return max(specificities) if specificities else (0, 0, 0)
 
 
-def color2hex(color):
+def color2hex(color: Color) -> str:
     """Return a hexadecimal string with '#' prepended for the Color instance."""
     r, g, b, a = color
     x = "#{:06x}".format(r*65536 + g*256 + b)
@@ -1486,7 +1488,7 @@ def color2hex(color):
     return x
 
 
-def quote_if_needed(s):
+def quote_if_needed(s: str) -> str:
     """Double-quote the string for CSS if it is not a valid ident-token."""
     if not re.fullmatch(r'[\w-]+', s):
         s = re.sub(r'[\\"]', lambda m: escape(m.group()), s)
@@ -1494,7 +1496,7 @@ def quote_if_needed(s):
     return s
 
 
-def escape(char):
+def escape(char: str) -> str:
     """Escape the specified character for CSS."""
     return "".join(r"\{:x} ".format(ord(c)) for c in char)
 
