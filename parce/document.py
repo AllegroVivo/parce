@@ -55,8 +55,11 @@ from typing import Self, Sequence, TYPE_CHECKING, cast
 from . import mutablestring, util
 
 if TYPE_CHECKING:
-    from parce._types import DocumentKey, ChangeTuple
+    from parce._types import ChangeTuple
     from parce.tree import Token
+
+type DocumentKey = int | slice | AbstractTextRange
+
 
 class AbstractDocument(mutablestring.AbstractMutableString):
     """Base class for a Document.

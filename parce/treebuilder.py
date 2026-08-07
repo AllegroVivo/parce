@@ -61,7 +61,7 @@ from parce.treebuilderutil import (
 if TYPE_CHECKING:
     from parce.tree import Node
     from parce.lexicon import Lexicon
-    from parce._types import MaybeLexicon, RootLexicon
+    from parce._types import RootLexicon
 
 def build_tree(root_lexicon: Lexicon, text: str, pos: int = 0) -> Context:
     """Build and return a tree in one go."""
@@ -170,7 +170,7 @@ class TreeBuilder(util.Observable):
 
     peek_threshold: ClassVar[int] = 0  #: set to a value > 0 to get :meth:`peek` called during building
 
-    def __init__(self, root_lexicon: MaybeLexicon = None):
+    def __init__(self, root_lexicon: Lexicon | None = None):
         super().__init__()
         self._lock: threading.Lock = threading.Lock()
         self.root: Context = Context(root_lexicon, None)

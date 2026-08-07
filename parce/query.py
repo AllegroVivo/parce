@@ -210,7 +210,7 @@ import sys
 from .lexicon import Lexicon
 
 if TYPE_CHECKING:
-    from parce._types import ContextOrToken, IntOrSlice
+    from parce._types import ContextOrToken
     from parce.tree import DumpStyle, Token, Context, Node
     from _typeshed import SupportsWrite
     from parce.standardaction import StandardAction
@@ -370,7 +370,7 @@ class Query:
 
     # navigators
     @query
-    def __getitem__(self, key: IntOrSlice) -> Iterator[ContextOrToken]:
+    def __getitem__(self, key: int | slice) -> Iterator[ContextOrToken]:
         """Get the specified item or items of every context node.
 
         Note that the result nodes always form a flat iterable. No IndexError

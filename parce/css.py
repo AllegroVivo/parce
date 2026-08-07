@@ -76,7 +76,7 @@ from typing import TYPE_CHECKING, NamedTuple, Any, Concatenate, Self, cast
 
 from . import action as a, util
 from .lang.css import Css
-from .transform import Transform, transform_text, Item, ItemList
+from .transform import Transform, transform_text, Item, ItemList, TransformItems
 
 if TYPE_CHECKING:
     from parce.tree import Token
@@ -96,8 +96,6 @@ type CssBlock = CssRules | CssProperties | None
 type CssPropertyValue = list[Value | str]
 #: A rule's properties: property name -> value list.
 type CssProperties = dict[str, CssPropertyValue]
-#: What a Transform method receives: an ItemList, or a plain list when sliced.
-type CssItems = Sequence[Item | Token]
 
 
 class Atrule(NamedTuple):
@@ -940,7 +938,7 @@ class CssTransform(Transform):
                 result.append(obj)
         return result
 
-    def prelude(self, items: CssItems) -> CssPrelude:
+    def prelude(self, items: TransformItems) -> CssPrelude:
         r"""Return a Css prelude.
 
         A prelude is a list of selector lists. A Css prelude that contains a
@@ -1003,7 +1001,7 @@ class CssTransform(Transform):
             d[name].append(obj)
         return dict(d)
 
-    def selector_list(self, items: CssItems) -> CssPrelude:
+    def selector_list(self, items: TransformItems) -> CssPrelude:
         """Stuff inside :not(), :is(), etc."""
         # skip the closing ) which is normally there
         if items and items[-1] == ')':
@@ -1023,7 +1021,7 @@ class CssTransform(Transform):
                 d[prop] = values
         return d
 
-    def declaration(self, items: CssItems) -> tuple[str, CssPropertyValue] | None:
+    def declaration(self, items: TransformItems) -> tuple[str, CssPropertyValue] | None:
         """Return a two-tuple(property, value).
 
         The value is a list of Value instances from :meth:`common`.
@@ -1176,14 +1174,14 @@ class CssTransform(Transform):
             return Value(color=color, text=text)
         return Value(text=text)
 
-    def function(self, items: CssItems) -> CssContents:
+    def function(self, items: TransformItems) -> CssContents:
         """Return a list of Value instances and delimiting tokens."""
         # skip the closing ) which is normally there
         if items and items[-1] == ')':
             items = items[:-1]
         return tuple(self.common(items))
 
-    def url_function(self, items: CssItems) -> Value:
+    def url_function(self, items: TransformItems) -> Value:
         """Return a Value with the url."""
         def gen() -> Iterator[str]:
             for i in items:
@@ -1196,13 +1194,13 @@ class CssTransform(Transform):
                     yield i.obj
         return Value(url=''.join(gen()))
 
-    def dqstring(self, items: CssItems) -> str:
+    def dqstring(self, items: TransformItems) -> str:
         """Return the contents of a double-quoted string."""
         if items and items[-1] == '"':
             items = items[:-1]
         return ''.join(self.get_string(items))
 
-    def sqstring(self, items: CssItems) -> str:
+    def sqstring(self, items: TransformItems) -> str:
         """Return the contents of a single-quoted string."""
         if items and items[-1] == "'":
             items = items[:-1]
