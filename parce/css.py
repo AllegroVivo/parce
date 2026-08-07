@@ -1080,7 +1080,7 @@ class CssTransform(Transform):
             elif i.name == 'attribute':
                 attr = i.obj
             elif i.name == 'ident_token':
-                if val:
+                if val is not None:
                     flag = i.obj
                 else:
                     val = i.obj
