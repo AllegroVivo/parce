@@ -211,6 +211,7 @@ class Css(Language):
     def atrule_nested(cls):
         """An atrule that has nested toplevel contents (@media, etc.)"""
         yield r"\{", Bracket, cls.atrule_nested_block
+        yield r";", Delimiter, -2  # ends the whole @-rule: leave atrule too
         yield from cls.atrule_common()
 
     @lexicon
@@ -228,7 +229,7 @@ class Css(Language):
     @lexicon
     def atrule_nested_block(cls):
         """A ``{`` ``}`` block from @media, @document or @supports."""
-        yield r"\}", Bracket, -2  # immediately leave the atrule_nested context
+        yield r"\}", Bracket, -3  # immediately leave the atrule_nested context
         yield from cls.toplevel()
 
     @classmethod
