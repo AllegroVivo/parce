@@ -478,7 +478,7 @@ class AbstractElement:
         return []
 
     def get_pseudo_elements(self):
-        """Implement to return a list of pseudo elements."""
+        """Implement to return a list of pseudo-elements."""
         return []
 
     def children(self):
@@ -993,7 +993,7 @@ class CssTransform(Transform):
             elif i.name == 'attribute':
                 attr = i.obj
             elif i.name == 'ident_token':
-                if val:
+                if val is not None:
                     flag = i.obj
                 else:
                     val = i.obj
