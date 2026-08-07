@@ -400,7 +400,7 @@ class Style:
         for rule in self.rules:
             for key, value in rule.properties.items():
                 important = False
-                if value[-1] == '!important':
+                if value and value[-1] == '!important':
                     value = value[:-1]
                     important = True
                 if key not in result:
