@@ -1370,7 +1370,7 @@ class CssTransform(Transform):
 
     def get_rgba_color(self, func_args):
         """Convert the arguments to a rgba(1 2 3 4) call to a Color."""
-        values = (v for v in func_args if isinstance(v, Value) and v.number)
+        values = (v for v in func_args if isinstance(v, Value) and v.number is not None)
         r = next(values, -1)
         if r != -1: r = self.get_number_value(r, 255)
         g = next(values, -1)
