@@ -21,8 +21,7 @@
 Parse JavaScript.
 
 """
-
-__all__ = ('JavaScript',)
+from __future__ import annotations
 
 import re
 
@@ -35,9 +34,11 @@ from parce.action import (
 from parce.unicharclass import categories
 from . import javascript_words as js
 
+__all__ = ('JavaScript',)
 
-RE_JS_IDENT_STARTCHAR = r'$_' + ''.join(map(categories.get, ['Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Nl']))
-RE_JS_IDENT_CHAR = RE_JS_IDENT_STARTCHAR + '\u200c\u200d' + ''.join(map(categories.get, ['Mn', 'Mc', 'Nd', 'Pc']))
+
+RE_JS_IDENT_STARTCHAR = r'$_' + ''.join(categories[c] for c in ('Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Nl'))
+RE_JS_IDENT_CHAR = RE_JS_IDENT_STARTCHAR + '\u200c\u200d' + ''.join(categories[c] for c in ('Mn', 'Mc', 'Nd', 'Pc'))
 RE_JS_ESCAPE_CHAR = r'\\u[0-9a-fA-F]{4}'
 RE_JS_IDENT_TOKEN = _I_ = fr'(?:[{RE_JS_IDENT_STARTCHAR}]|{RE_JS_ESCAPE_CHAR})' \
                 fr'(?:[{RE_JS_IDENT_CHAR}]+|{RE_JS_ESCAPE_CHAR})*'

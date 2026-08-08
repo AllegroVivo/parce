@@ -1060,7 +1060,7 @@ FVLAT           =  Fraction(-3, 5)
 SVLAT           =  Fraction(2, 5)
 
 
-pitch_names = {
+pitch_names: dict[str, dict[str, tuple[int, int, float | Fraction]]] = {
     "nederlands": {
         "ceses": (-1, 0, DOUBLE_FLAT),
         "ceseh": (-1, 0, THREE_Q_FLAT),
@@ -2270,7 +2270,7 @@ drum_pitch_shortnames = {
 }
 
 
-drum_pitch_names = dict(drum_pitch_longnames)
+drum_pitch_names: dict[str, tuple[int, int, float] | None] = dict(drum_pitch_longnames)
 drum_pitch_names.update((short_name, drum_pitch_longnames.get(long_name))
     for short_name, long_name in drum_pitch_shortnames.items())
 
