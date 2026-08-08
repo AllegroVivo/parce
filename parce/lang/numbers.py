@@ -419,8 +419,8 @@ class Français(Numbers):
         """Numerical value below 100."""
         yield _SKIP
         tens = (cls._TENS[4], cls._TENS[6]) # soixante, quatre-vingt + 10-19
-        yield r'({})[\s-]*({})'.format(
-            words(tens), words(cls._TO19[1:10])), bygroup(Number, Number), -1
+        yield r'({})[\s-]*(?:et)?[\s-]*({})'.format(
+            words(tens), words(cls._TO19[10:20])), bygroup(Number, Number), -1
         # vingt, treize, quatorze, cinquante, soixante, quatre-vingt (+ 0-9)
         tens = cls._TENS[:5] + cls._TENS[6:7]
         yield r'({})(?:[\s-]*(?:et)?[\s-]*({}))?'.format(
