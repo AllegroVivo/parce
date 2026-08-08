@@ -11,6 +11,8 @@ real one.
 """
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -27,6 +29,12 @@ type ContextOrToken = Context | Token
 #: lexicon", or False meaning "leave the current root lexicon unchanged".
 type RootLexicon = Lexicon | Literal[False] | None
 
+#: One match yielded by :func:`Lexicon.parse`: ``(pos, text, matchobj, action, target)``.
+type LexiconParseTuple = tuple[int, str, re.Match[str] | None, Any, Target | None]
+
+#: The signature of a compiled lexicon parse function.
+type ParseFunc = Callable[[str, int], Iterator[LexiconParseTuple]]
+
 #: One lexed token before tree building: ``(pos, text, action)``.
 type Lexeme = tuple[int, str, StandardAction]
 
@@ -36,4 +44,5 @@ type LexiconRule = tuple[Any, ...]
 # --- Documents ---
 #: A single text change: ``(start, end, text)``
 type ChangeTuple = tuple[int, int, str]
+
 
