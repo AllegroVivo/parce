@@ -83,14 +83,19 @@ not matter. For example::
     [21]
 
 """
+from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Callable
+from typing import Any, TYPE_CHECKING
 import re
 
 from parce import Language, lexicon, skip, default_target
 from parce.action import Number
 from parce.rule import bygroup, words
-from parce.transform import Transform
+from parce.transform import ItemList, Transform
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
 
 __all__ = (
     "English", "EnglishTransform", "ENGLISH_TENS", "ENGLISH_TO19",
@@ -154,9 +159,9 @@ FRANCAIS_TENS = (
 _SKIP = r'[\s-]+', skip
 
 
-def _values(tens, to19):
+def _values(tens: Iterable[str], to19: Iterable[str]) -> dict[str, int]:
     """Get a dictionary mapping numerals to their value."""
-    d = {}
+    d: dict[str, int] = {}
     d.update((t, n) for n, t in enumerate(to19))
     d.update((t, n * 10) for n, t in enumerate(tens, 2))
     return d
@@ -165,45 +170,58 @@ def _values(tens, to19):
 class Numbers(Language):
     """Abstract base class to parse numbers from text in different languages."""
 
-    _TO19 = ()
-    _TENS = ()
+    _TO19: tuple[str, ...] = ()
+    _TENS: tuple[str, ...] = ()
     _HUNDRED = _THOUSAND = _MILLION = ''
 
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """Find zero or more numbers."""
         yield default_target, cls.number, cls.p6, cls.p3, cls.p2, cls.n99
 
     @lexicon
-    def number(cls):
+    def number(cls) -> Iterator[LexiconRule]:
         """A number."""
         yield default_target, -1
 
     @lexicon(re_flags=re.IGNORECASE)
-    def n99(cls):
+    def n99(cls) -> None:
         """Implement to parse a numerical value below 100."""
 
     @lexicon(re_flags=re.IGNORECASE)
-    def p2(cls):
+    def p2(cls) -> Iterator[LexiconRule]:
         """'Hundred' or values below 100."""
         yield _SKIP
         yield cls._HUNDRED, Number, -1, cls.n99
         yield default_target, -1
 
     @lexicon(re_flags=re.IGNORECASE)
-    def p3(cls):
+    def p3(cls) -> Iterator[LexiconRule]:
         """'Thousand' or values below 1000."""
         yield _SKIP
         yield cls._THOUSAND, Number, -1, cls.p2, cls.n99
         yield default_target, -1
 
     @lexicon(re_flags=re.IGNORECASE)
-    def p6(cls):
+    def p6(cls) -> Iterator[LexiconRule]:
         """'Million' or values below 1000000."""
         yield _SKIP
         yield cls._MILLION, Number, -1, cls.p3, cls.p2, cls.n99
         yield default_target, -1
 
+
+def _factor_func(factor: int) -> Callable[[NumbersTransform, ItemList], int]:
+    """Return the method to use for the specified factor."""
+    def p(self: NumbersTransform, items: ItemList) -> int:
+        values: list[Any] = []
+        for i in items:
+            if i.is_token:  # always 'hundred'/'thousand', always the last one
+                return factor * sum(values) if values else factor
+            else:
+                values.append(i.obj)
+        return sum(values)
+    p.__doc__ = "The value {0} or the sum of nested values below {0}.".format(factor)
+    return p
 
 class NumbersTransform(Transform):
     """Abstract base class for a Transform for numbers.
@@ -211,38 +229,23 @@ class NumbersTransform(Transform):
     Creates a list of zero or more numbers that were found.
 
     """
-    _VALUES = {}
+    _VALUES: dict[str, int] = {}
 
-    def root(self, items):
+    def root(self, items: ItemList) -> list[Any]:
         """The list of numbers."""
-        return [i.obj for i in items]
+        return [i.obj for i in items.items()]
 
-    def number(self, items):
+    def number(self, items: ItemList) -> int:
         """A number."""
-        return sum(i.obj for i in items)
+        return sum(i.obj for i in items.items())
 
-    def n99(self, items):
+    def n99(self, items: ItemList) -> int:
         """The numerical value (below 100) of a text string."""
-        return sum(self._VALUES[i.text.lower()] for i in items)
-
-    def _factor_func(factor):
-        """Return the method to use for the specified factor."""
-        def p(self, items):
-            values = []
-            for i in items:
-                if i.is_token:  # always 'hundred'/'thousand', always the last one
-                    return factor * sum(values) if values else factor
-                else:
-                    values.append(i.obj)
-            return sum(values)
-        p.__doc__ = "The value {0} or the sum of nested values below {0}.".format(factor)
-        return p
+        return sum(self._VALUES[i.text.lower()] for i in items.tokens())
 
     p2 = _factor_func(100)
     p3 = _factor_func(1000)
     p6 = _factor_func(1000000)
-
-    del _factor_func
 
 
 class English(Numbers):
@@ -252,7 +255,7 @@ class English(Numbers):
     _HUNDRED, _THOUSAND, _MILLION = "hundred", "thousand", "million"
 
     @lexicon(re_flags=re.IGNORECASE)
-    def n99(cls):
+    def n99(cls) -> Iterator[LexiconRule]:
         """Numerical value below 100."""
         yield _SKIP
         yield words(cls._TENS), Number, -1, cls.p1
@@ -260,7 +263,7 @@ class English(Numbers):
         yield default_target, -1
 
     @lexicon(re_flags=re.IGNORECASE)
-    def p1(cls):
+    def p1(cls) -> Iterator[LexiconRule]:
         """Numerical value after a tenfold (e.g. 'three' after 'eighty')."""
         yield _SKIP
         yield words(cls._TO19[1:10]), Number, -1
@@ -304,7 +307,7 @@ class Nederlands(Numbers):
     _HUNDRED, _THOUSAND, _MILLION = "honderd", "duizend", "miljoen"
 
     @lexicon(re_flags=re.IGNORECASE)
-    def n99(cls):
+    def n99(cls) -> Iterator[LexiconRule]:
         """Numerical value below 100."""
         yield _SKIP
         yield words(cls._TO19[10:]), Number, -1
@@ -356,7 +359,7 @@ class Deutsch(Numbers):
     _HUNDRED, _THOUSAND, _MILLION = "hundert", "tausend", "million"
 
     @lexicon(re_flags=re.IGNORECASE)
-    def n99(cls):
+    def n99(cls) -> Iterator[LexiconRule]:
         """Numerical value below 100."""
         yield _SKIP
         TENS = cls._TENS + ('dreissig',)
@@ -415,10 +418,10 @@ class Français(Numbers):
     _HUNDRED, _THOUSAND, _MILLION = "cents?", "mille", "millions?"
 
     @lexicon(re_flags=re.IGNORECASE)
-    def n99(cls):
+    def n99(cls) -> Iterator[LexiconRule]:
         """Numerical value below 100."""
         yield _SKIP
-        tens = (cls._TENS[4], cls._TENS[6]) # soixante, quatre-vingt + 10-19
+        tens: tuple[str, ...] = (cls._TENS[4], cls._TENS[6]) # soixante, quatre-vingt + 10-19
         yield r'({})[\s-]*(?:et)?[\s-]*({})'.format(
             words(tens), words(cls._TO19[10:20])), bygroup(Number, Number), -1
         # vingt, treize, quatorze, cinquante, soixante, quatre-vingt (+ 0-9)
