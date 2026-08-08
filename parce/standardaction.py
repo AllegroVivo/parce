@@ -90,7 +90,7 @@ See for the full list of pre-defined standard actions :doc:`stdactions`.
 
 
 """
-
+from __future__ import annotations
 
 import threading
 
@@ -98,7 +98,7 @@ import threading
 # to me to equip every instance with one.
 _lock = threading.Lock()
 
-_toplevel_actions = {}       # store the "root" actions
+_toplevel_actions: dict[str, StandardAction] = {}       # store the "root" actions
 
 
 class StandardAction:
