@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from parce.target import Target
     from parce.tree import Context, Token
     from parce.lexicon import Lexicon
     from parce.standardaction import StandardAction

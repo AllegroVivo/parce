@@ -43,13 +43,20 @@ special behaviour afterwards.
 The following rule items and helper functions are available:
 
 """
-
+from __future__ import annotations
 
 import operator
 import re
+from collections.abc import Callable, Hashable, Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 from . import regex
 from . import ruleitem
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.lexicon import Lexicon
+    from parce.ruleitem import TargetValue
 
 
 __all__ = (
@@ -80,12 +87,12 @@ You can use :obj:`TEXT[s]` to get a slice of the matched text.
 
 """
 
-def call(predicate, *arguments):
+def call(predicate: Callable[..., Any], *arguments: Any) -> ruleitem.call:
     """Yield the result of calling the predicate with arguments."""
     return ruleitem.call(predicate, *arguments)
 
 
-def select(index, *items):
+def select(index: Any, *items: Any) -> ruleitem.select:
     r"""Yield the item pointed to by the index.
 
     In most use cases the index will be the result of a predicate function,
@@ -116,7 +123,7 @@ def select(index, *items):
     return ruleitem.select(index, *items)
 
 
-def target(value, *lexicons):
+def target(value: TargetValue, *lexicons: Any) -> ruleitem.target:
     """Yield either an integer target value, or a (possibly derived) Lexicon.
 
     Using this rule item you can have one predicate function decide whether to
@@ -158,7 +165,7 @@ def target(value, *lexicons):
 
 ### Helpers that create rule items
 
-def ifeq(a, b, result, else_result=()):
+def ifeq(a: Any, b: Any, result: Any, else_result: Any=()) -> ruleitem.select:
     r"""Yield ``result`` if ``a == b``, else ``else_result``.
 
     This example selects actions and target based on the contents of the
@@ -173,12 +180,17 @@ def ifeq(a, b, result, else_result=()):
     return select(call(operator.eq, a, b), else_result, result)
 
 
-def ifneq(a, b, result, else_result=()):
+def ifneq(a: Any, b: Any, result: Any, else_result: Any = ()) -> ruleitem.select:
     r"""Yield ``result`` if ``a != b``, else ``else_result``."""
     return select(call(operator.ne, a, b), else_result, result)
 
 
-def ifmember(item, sequence, result, else_result=()):
+def ifmember(
+    item: Any,
+    sequence: Iterable[Hashable],
+    result: Any,
+    else_result: Any=()
+) -> ruleitem.select:
     r"""Yield ``result`` if ``item in sequence``, else ``else_result``.
 
     Example::
@@ -198,7 +210,7 @@ def ifmember(item, sequence, result, else_result=()):
         else_result, result)
 
 
-def ifgroup(n, result, else_result=()):
+def ifgroup(n: int, result: Any, else_result: Any=()) -> ruleitem.select:
     """Yield ``result`` if match group ``n`` is not None.
 
     A regular expression match group is None when the group did not contribute
@@ -216,7 +228,7 @@ def ifgroup(n, result, else_result=()):
     return select(call(operator.ne, MATCH[n], None), else_result, result)
 
 
-def gselect(*results, default=()):
+def gselect(*results: Any, default: Any = ()) -> ruleitem.select:
     """Yield one of the results if that group contributes to the match.
 
     For example::
@@ -242,17 +254,17 @@ def gselect(*results, default=()):
 
     """
     indices, results = zip(*((i, r) for i, r in enumerate(results, 1) if r is not None))
-    indices = list(enumerate(indices))
+    enumerated_indices = list(enumerate(indices))
     default_index = len(results)
-    def predicate(m):
-        for i, n in indices:
+    def predicate(m: re.Match[str]) -> int:
+        for i, n in enumerated_indices:
             if m.group(m.lastindex + n) is not None:
                 return i
         return default_index
     return select(call(predicate, MATCH), *results, default)
 
 
-def dselect(item, mapping, default=()):
+def dselect(item: Any, mapping: dict[Any, Any], default: Any = ()) -> ruleitem.select:
     r"""Yield the ``item`` from the specified ``mapping`` (dictionary).
 
     If the item can't be found in the mapping, returns ``default``.
@@ -274,12 +286,12 @@ def dselect(item, mapping, default=()):
     for i, (key, value) in enumerate(mapping.items(), 1):
         d[key] = i
         items.append(value)
-    def get_index(text):
+    def get_index(text: Any) -> int:
         return d.get(text, 0)
     return select(call(get_index, item), *items)
 
 
-def derive(lexicon, argument):
+def derive(lexicon: Any, argument: Any) -> ruleitem.target:
     r"""Yield a derived lexicon with argument.
 
     Example::
@@ -297,7 +309,7 @@ def derive(lexicon, argument):
     return target((0, argument), lexicon)
 
 
-def findmember(item, pairs, default=()):
+def findmember(item: Any, pairs: Any, default: Any = ()) -> ruleitem.select:
     r"""Yield the item corresponding to the first sequence the item is found in.
 
     The ``pairs`` argument is an iterable of tuples(sequence, result).
@@ -312,14 +324,14 @@ def findmember(item, pairs, default=()):
         pairs = pairs.items()   # succeeds if it's a dict
     except AttributeError:
         pass
-    d = {}
+    d: dict[Any, int] = {}
     items = [default]
     for s, i in pairs:
         s = set(s) - set(d)
         if s:
             d.update(dict.fromkeys(s, len(items)))
             items.append(i)
-    def get_index(text):
+    def get_index(text: Any) -> int:
         return d.get(text, 0)
     return select(call(get_index, item), *items)
 
@@ -327,7 +339,7 @@ def findmember(item, pairs, default=()):
 ### Pattern helpers
 
 
-def words(words, prefix="", suffix=""):
+def words(words: Iterable[str], prefix: str = "", suffix: str = "") -> str:
     r"""Return an optimized regular expression pattern matching any of the
     words in the specified sequence.
 
@@ -349,7 +361,7 @@ def words(words, prefix="", suffix=""):
     return expr
 
 
-def chars(chars, positive=True):
+def chars(chars: Iterable[str], positive: bool = True) -> str:
     """Return a regular expression pattern matching one of the characters in
     the specified string or iterable.
 
@@ -370,7 +382,7 @@ def chars(chars, positive=True):
 ### Dynamic patterns (depending on ARG)
 
 
-def pattern(value):
+def pattern(value: Any) -> ruleitem.pattern:
     """Yield the value (string or None), usable as regular expression.
 
     If None, the whole rule is skipped. This rule item may only be used as
@@ -382,7 +394,12 @@ def pattern(value):
     return ruleitem.pattern(value)
 
 
-def arg(escape=True, prefix="", suffix="", default=None):
+def arg(
+    escape: bool = True,
+    prefix: str = "",
+    suffix: str = "",
+    default: str | None = None
+) -> ruleitem.pattern:
     r"""Create a pattern that contains the argument the current Lexicon was
     called with.
 
@@ -396,7 +413,7 @@ def arg(escape=True, prefix="", suffix="", default=None):
     ``suffix`` are not used.
 
     """
-    def build(arg):
+    def build(arg: Any) -> str | None:
         """Return the lexicon argument as regular expression."""
         if isinstance(arg, str):
             if escape:
@@ -406,7 +423,7 @@ def arg(escape=True, prefix="", suffix="", default=None):
     return pattern(call(build, ARG))
 
 
-def ifarg(pat, else_pat=None):
+def ifarg(pat: str, else_pat: str | None = None) -> ruleitem.pattern:
     r"""Create a pattern that returns the specified regular expression ``pat``
     if the lexicon was called with an argument.
 
@@ -420,7 +437,7 @@ def ifarg(pat, else_pat=None):
 ### Dynamic actions
 
 
-def bygroup(*actions):
+def bygroup(*actions: Any) -> ruleitem.SubgroupAction:
     r"""Return a :class:`~parce.ruleitem.SubgroupAction` that yields tokens for
     each subgroup in a regular expression.
 
@@ -441,7 +458,7 @@ def bygroup(*actions):
     return ruleitem.SubgroupAction(*actions)
 
 
-def using(lexicon):
+def using(lexicon: Lexicon) -> ruleitem.DelegateAction:
     r"""Return a :class:`~parce.ruleitem.DelegateAction` that yields tokens
     using the specified lexicon.
 
@@ -460,7 +477,7 @@ def using(lexicon):
 ### Helper to yield modified rules
 
 
-def anyof(lexicon, *target):
+def anyof(lexicon: Lexicon, *target: Any) -> Iterator[LexiconRule]:
     """Yield certain rules from the specified ``lexicon``, adding a ``target``.
 
     Rules that specify a target themselves, and rules starting with
