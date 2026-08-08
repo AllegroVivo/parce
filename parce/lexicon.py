@@ -67,8 +67,10 @@ Parsing (better: lexing) is done by a :class:`~parce.lexer.Lexer` instance,
 which switches Lexicon when a target is encountered.
 
 """
+from __future__ import annotations
 
-__all__ = ('Lexicon', 'LexiconDescriptor')
+from collections.abc import Callable, Iterator, Iterable
+from typing import TYPE_CHECKING, Any
 
 import itertools
 import re
@@ -76,30 +78,41 @@ import threading
 
 import parce.regex
 from . import util
-from .target import TargetFactory
+from .target import TargetFactory, Target
 from .ruleitem import (
     Item, RuleItem, evaluate_rule, needs_evaluation, pre_evaluate_rule)
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule, ParseFunc, LexiconParseTuple
+    from parce.language import Language
+
+__all__ = ('Lexicon', 'LexiconDescriptor')
+
+type LexiconRulesFunc = Callable[[Any], Iterable[LexiconRule] | None]
 
 class LexiconDescriptor:
     """The LexiconDescriptor creates a Lexicon when called via a class."""
 
-    def __init__(self, rules_func,
-                       re_flags=0,
-                       consume=False,
-        ):
+    def __init__(
+        self,
+        rules_func: LexiconRulesFunc,
+        re_flags: re.RegexFlag | int = 0,
+        consume: bool = False,
+    ) -> None:
         """Initializes with the rules function.
 
         The rules function accepts the Language class as argument, and yields
         the pattern, action, target, ... tuples.
 
         """
-        self.rules_func = rules_func    #: the function yielding the rules
-        self._re_flags = re_flags
-        self._consume = consume
-        self._lexicons = util.caching_dict(lambda owner: Lexicon(self, owner))
+        self.rules_func: LexiconRulesFunc = rules_func    #: the function yielding the rules
+        self._re_flags: re.RegexFlag | int = re_flags
+        self._consume: bool = consume
+        self._lexicons: dict[Any, Lexicon] = util.caching_dict(
+            lambda owner: Lexicon(self, owner)
+        )
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance: object | None, owner: type[Any]) -> Lexicon:
         """Called when accessed as a descriptor, via the Language class."""
         return self._lexicons[owner]
 
@@ -124,39 +137,44 @@ class Lexicon:
     """
     __hash__ = object.__hash__
 
-    def __init__(self, descriptor, language, arg=None):
+    def __init__(
+        self,
+        descriptor: LexiconDescriptor,
+        language: type[Language],
+        arg: Any = None
+    ) -> None:
         #: The LexiconDescriptor this Lexicon was created by.
-        self.descriptor = descriptor
+        self.descriptor: LexiconDescriptor = descriptor
         #: The Language class the lexicon belongs to.
-        self.language = language
+        self.language: type[Language] = language
         #: The re_flags that were set on instantiation.
-        self.re_flags = descriptor._re_flags
+        self.re_flags: re.RegexFlag | int = descriptor._re_flags
         #: Whether this lexicon wants the token(s) that switched to it
-        self.consume = descriptor._consume
+        self.consume: bool = descriptor._consume
         # The argument the lexicon was called with (creating a derived
         # Lexicon). None for a normal lexicon.
-        self._arg = arg
+        self._arg: Any = arg
         #: The short name (name of the method this Lexicon was defined with)
-        self.name = descriptor.rules_func.__name__
+        self.name: str = descriptor.rules_func.__name__
         #: The short name with the Language name prepended, like
         #: ``'Language.lexicon'``.
-        self.fullname = language.__name__ + '.' + self.name
+        self.fullname: str = language.__name__ + '.' + self.name
         #: The full name with the Language's module prepended, like
         #: ``'parce.lang.xml.Xml.root'``.
-        self.qualname = language.__module__ + '.' + self.fullname
+        self.qualname: str = language.__module__ + '.' + self.fullname
         self.__doc__ = descriptor.rules_func.__doc__
         # lock is used when creating the parse() instance function
-        self._lock_build = threading.Lock()
+        self._lock_build: threading.Lock = threading.Lock()
 
     @property
-    def arg(self):
+    def arg(self) -> Any:
         """The argument the lexicon was called with (creating a derived
         Lexicon). None for a normal lexicon.
 
         """
         return self._arg
 
-    def __call__(self, arg=None):
+    def __call__(self, arg: Any = None) -> Lexicon:
         """Create a derived Lexicon with argument ``arg``.
 
         The argument should be a simple, hashable singleton object, such as a
@@ -187,24 +205,24 @@ class Lexicon:
         return self._derive(arg)
 
     @util.cached_method
-    def _derive(self, arg):
+    def _derive(self, arg: Any) -> Lexicon:
         """Factory, called when a derived lexicon needs to be created."""
         return Lexicon(self.descriptor, self.language, arg)
 
-    def __eq__(self, other):
-        """Return True if we are the same lexicon or a derivate from the same."""
+    def __eq__(self, other: object) -> bool:
+        """Return True if we are the same lexicon or a derivative from the same."""
         if type(other) is type(self):
             return self.descriptor is other.descriptor and self.language is other.language
         return NotImplemented
 
-    def __ne__(self, other):
-        """Return True if we are the not the same lexicon or a derivate from the same."""
+    def __ne__(self, other: object) -> bool:
+        """Return True if we are not the same lexicon or a derivative from the same."""
         if type(other) is type(self):
             return self.descriptor is not other.descriptor or self.language is not other.language
         return NotImplemented
 
     @util.cached_property
-    def _rules(self):
+    def _rules(self) -> tuple[LexiconRule, ...]:
         """Return all rules in a tuple.
 
         Rule items that depend on the lexicon argument are only evaluated if
@@ -217,7 +235,7 @@ class Lexicon:
         return tuple(rules)
 
     @util.cached_property
-    def rules(self):
+    def rules(self) -> tuple[LexiconRule, ...]:
         """Return all rules in a tuple.
 
         Rule items that depend on the lexicon argument are already evaluated.
@@ -226,7 +244,7 @@ class Lexicon:
         return tuple(pre_evaluate_rule(rule, self.arg)
                 for rule in self.descriptor.rules_func(self.language) or ())
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[LexiconRule]:
         """Yield the rules.
 
         Patterns are created when this method is called for the first time. If
@@ -236,13 +254,13 @@ class Lexicon:
         """
         yield from self._rules
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         s = self.fullname
         if self.arg is not None:
             s += '*'
         return s
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         """Called when ``self.parse(text, pos)`` is requested the first time.
 
         Calls :meth:`_get_parse_function` to get the parse function.
@@ -256,7 +274,7 @@ class Lexicon:
                     self.parse = self._get_parse_function()
         return object.__getattribute__(self, name)
 
-    def _get_parse_function(self):
+    def _get_parse_function(self) -> ParseFunc:
         """Compile the pattern rules and return the parse function."""
         patterns = []
         rules = []
@@ -278,33 +296,32 @@ class Lexicon:
                 rules.append(rule)
 
         # prepare to handle a dynamic default action
+        dynamic_default_action: Callable[[str], Any] | None = None
         if isinstance(default_action, RuleItem):
-            def dynamic_default_action(text):
+            def dynamic_default_action(text: str) -> Any:
                 return default_action.evaluate({'text': text})
-        else:
-            dynamic_default_action = False
 
         # handle the empty lexicon case
         if not patterns:
-            if dynamic_default_action:
-                def parse(text, pos):
+            if dynamic_default_action is not None:
+                def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                     """Parse text, using a dynamic default action for unknown text."""
                     if pos < len(text):
                         t = text[pos:]
                         yield pos, t, None, dynamic_default_action(t), None
             elif default_action is not no_default_action:
-                def parse(text, pos):
+                def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                     """Parse text, using a default action for unknown text."""
                     if pos < len(text):
                         yield pos, text[pos:], None, default_action, None
             elif default_target:
-                def parse(text, pos):
+                def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                     """Parse text, stopping with the default target at unknown text."""
                     if pos < len(text):
                         yield pos, "", None, None, default_target
             else:
                 # just quit parsing
-                def parse(text, pos):
+                def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                     """Parse text, skipping unknown text."""
                     return
                     yield
@@ -319,8 +336,8 @@ class Lexicon:
                 l = len(needle)
                 action, *rule = rules[0]
                 target = make_target(self, rule)
-                if dynamic_default_action:
-                    def parse(text, pos):
+                if dynamic_default_action is not None:
+                    def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                         """Parse text, using a dynamic default action for unknown text."""
                         while True:
                             i = text.find(needle, pos)
@@ -335,7 +352,7 @@ class Lexicon:
                             t = text[pos:]
                             yield pos, t, None, dynamic_default_action(t), None
                 elif default_action is not no_default_action:
-                    def parse(text, pos):
+                    def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                         """Parse text, using a default action for unknown text."""
                         while True:
                             i = text.find(needle, pos)
@@ -348,7 +365,7 @@ class Lexicon:
                         if pos < len(text):
                             yield pos, text[pos:], None, default_action, None
                 elif default_target:
-                    def parse(text, pos):
+                    def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                         """Parse text, stopping with the default target at unknown text."""
                         while needle == text[pos:pos+l]:
                             yield pos, needle, None, action, target
@@ -356,7 +373,7 @@ class Lexicon:
                         if pos < len(text):
                             yield pos, "", None, None, default_target
                 else:
-                    def parse(text, pos):
+                    def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                         """Parse text, skipping unknown text."""
                         while True:
                             i = text.find(needle, pos)
@@ -372,8 +389,8 @@ class Lexicon:
         # make a fast mapping list from matchObj.lastindex to the rules.
         # rules that contain Item instances are put in the dynamic index
         indices = sorted(v for k, v in rx.groupindex.items() if k.startswith('g_'))
-        static = [None] * (indices[-1] + 1)
-        dynamic = [None] * (indices[-1] + 1)
+        static: list[tuple[Any, Target | None] | None] = [None] * (indices[-1] + 1)
+        dynamic: list[list[Any] | None] = [None] * (indices[-1] + 1)
         for i, rule in zip(indices, rules):
             if needs_evaluation(rule):
                 dynamic[i] = rule
@@ -383,18 +400,22 @@ class Lexicon:
 
         # for rule containing no dynamic stuff, static has the rule, otherwise
         # falls back to dynamic, which is then immediately executed
-        def token(m):
+        def token(m: re.Match[str]) -> LexiconParseTuple:
             """Return pos, text, match, *rule for the match object."""
-            return (m.start(), m.group(), m, *(static[m.lastindex] or replace(m)))
+            return (m.start(), m.group(), m, *(static[m.lastindex] or replace(m)))  # type: ignore[index]  # every pattern is a named group: lastindex is never None
 
-        def replace(m):
+        def replace(m: re.Match[str]) -> tuple[Any, Target | None]:
             """Recursively replace dynamic rule items in the rule pointed to by match object."""
-            action, *target = evaluate_rule(dynamic[m.lastindex], m)
+            i = m.lastindex
+            assert i is not None  # every pattern is a named group
+            rule = dynamic[i]
+            assert rule is not None  # replace() only runs when static[i] is None (dynamic rules)
+            action, *target = evaluate_rule(rule, m)
             return action, make_target(self, target)
 
-        if dynamic_default_action:
+        if dynamic_default_action is not None:
             finditer = rx.finditer
-            def parse(text, pos):
+            def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                 """Parse text, using a dynamic default action for unknown text."""
                 for m in finditer(text, pos):
                     if m.start() > pos:
@@ -407,7 +428,7 @@ class Lexicon:
                     yield pos, t, None, dynamic_default_action(t), None
         elif default_action is not no_default_action:
             finditer = rx.finditer
-            def parse(text, pos):
+            def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                 """Parse text, using a default action for unknown text."""
                 for m in finditer(text, pos):
                     if m.start() > pos:
@@ -418,7 +439,7 @@ class Lexicon:
                     yield pos, text[pos:], None, default_action, None
         elif default_target:
             match = rx.match
-            def parse(text, pos):
+            def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                 """Parse text, stopping with the default target at unknown text."""
                 while True:
                     m = match(text, pos)
@@ -431,7 +452,7 @@ class Lexicon:
                         break
         else:
             finditer = rx.finditer
-            def parse(text, pos):
+            def parse(text: str, pos: int) -> Iterator[LexiconParseTuple]:
                 """Parse text, skipping unknown text."""
                 return map(token, finditer(text, pos))
         return parse

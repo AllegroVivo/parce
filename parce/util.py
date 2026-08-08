@@ -559,7 +559,7 @@ def object_locker() -> Callable[[object], AbstractContextManager[Any]]:
     return lock_object
 
 
-def cached_method[F: Callable[[Any], Any]](func: F) -> F:
+def cached_method[F: Callable[..., Any]](func: F) -> F:
     """Wrap a method and caches its return value.
 
     The method argument tuple should be hashable. Keyword arguments are not
