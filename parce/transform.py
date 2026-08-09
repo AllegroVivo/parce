@@ -222,7 +222,7 @@ class Transformer(util.Observable):
         def make_target(pop: int, push: Sequence[Lexicon]) -> Target | None:
             """Return a Target if pop < 0 or push is not empty."""
             if pop or push:
-                return Target(pop, push)
+                return Target(pop, tuple(push))
             return None
 
         def build_tree(
