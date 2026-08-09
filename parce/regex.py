@@ -21,14 +21,25 @@
 """
 Utility module with functions to construct or manipulate regular expressions.
 """
+from __future__ import annotations
 
-
+from collections.abc import Iterable, Iterator, Sequence, Collection
+from typing import Any, cast
 import operator
 import re
 import unicodedata
 
+#: A radix trie: keys are character runs, the None key marks a word end.
+type Trie = dict[str | None, Any]
 
-def words2regexp(words):
+#: A regexp part: a plain string, or a frozenset of alternatives, which
+#: holds strings, sub-tuples, or None (meaning the group is optional).
+type RxPart = str | frozenset[str | RxTuple | None]
+#: A tuple of regexp parts, as produced by trie_to_regexp_tuple().
+type RxTuple = tuple[RxPart, ...]
+
+
+def words2regexp(words: Iterable[str]) -> str:
     """Convert the ``words`` iterable to an optimized regular expression.
 
     Example::
@@ -48,7 +59,7 @@ def words2regexp(words):
     return build_regexp(r)
 
 
-def make_charclass(chars):
+def make_charclass(chars: Iterable[str]) -> str:
     """Return a string with adjacent characters grouped.
 
     Example::
@@ -64,7 +75,7 @@ def make_charclass(chars):
     Special characters are properly escaped.
 
     """
-    buf = []
+    buf: list[list[int]] = []
     for c in sorted(map(ord, set(chars))):
         if buf and buf[-1][1] == c - 1:
             buf[-1][1] = c
@@ -76,7 +87,7 @@ def make_charclass(chars):
                    for a, b in buf)
 
 
-def common_suffix(words):
+def common_suffix(words: Iterable[str]) -> tuple[Collection[str], str]:
     """Return (words, suffix), where suffix is the common suffix.
 
     If there is no common suffix, words is returned unchanged, and suffix is an
@@ -90,19 +101,19 @@ def common_suffix(words):
     # make sure words is not a generator, othw we maybe can't iterate it twice
     if not isinstance(words, (list, tuple, set, frozenset)):
         words = tuple(words)
-    suffix = []
+    suffix_chars: list[str] = []
     for s in map(set, zip(*map(reversed, words))):
         if len(s) != 1:
             break
-        suffix.extend(s)
-    suffix = ''.join(reversed(suffix))
+        suffix_chars.extend(s)
+    suffix: str = ''.join(reversed(suffix_chars))
     if suffix:
         chop = operator.itemgetter(slice(-len(suffix)))
         words = tuple(map(chop, words))
     return words, suffix
 
 
-def to_string(expr):
+def to_string(expr: str) -> str | None:
     r"""Convert an unambiguous regexp to a plain string.
 
     If the regular expression is unambiguous and can be converted to a plain
@@ -121,7 +132,7 @@ def to_string(expr):
 
     """
     if set(re.sub(r'\\(?:N\{.*?\}|.)', '', expr)) & set("^$|.()[]{}+*?"):
-        return  # there are unescaped special characters like (, [, ? etc.
+        return None  # there are unescaped special characters like (, [, ? etc.
     # handle all escapes, there may be fails, in that case we can't use the expr as string
     pat = (r'\\(?:'
         r'x([0-9a-fA-F]{2})'        # 1 hex
@@ -143,18 +154,18 @@ def to_string(expr):
         lambda s: s,                        # escaped re char
         lambda s: unicodedata.lookup(s),    # named unicode, can raise KeyError
     )
-    def replace_escapes(m):
+    def replace_escapes(m: re.Match[str]) -> str:
         i = m.lastindex     # TypeError is raised if None, or if repl returns None
-        return repl[i-1](m.group(i))
+        return repl[i-1](m.group(i))  # type: ignore[operator,return-value,arg-type]  # deliberate: None bombs re.sub with TypeError, caught below
     try:
         s = re.sub(pat, replace_escapes, expr)
     except (TypeError, KeyError):
-        return
+        return None
     assert re.fullmatch(expr, s)
     return s
 
 
-def make_trie(words, reverse=False):
+def make_trie(words: Iterable[str], reverse: bool = False) -> Trie:
     """Return a dict-based radix trie structure from a list of words.
 
     End-points are denoted by a None key, set to True. If reverse is set to
@@ -197,7 +208,7 @@ def make_trie(words, reverse=False):
         chars = lambda word: word
         add = lambda k1, k2: k1 + k2
 
-    root = {}
+    root: Trie = {}
     for w in words:
         d = root
         for c in chars(w):
@@ -205,7 +216,7 @@ def make_trie(words, reverse=False):
         d[None] = True  # end
 
     # merge characters that are the only child with their parents
-    def merge(node):
+    def merge(node: Trie) -> Iterator[tuple[str | None, Any]]:
         for key, node in node.items():
             if key:
                 while len(node) == 1:
@@ -222,7 +233,7 @@ def make_trie(words, reverse=False):
     return dict(merge(root))
 
 
-def trie_to_regexp_tuple(node, reverse=False):
+def trie_to_regexp_tuple(node: Trie, reverse: bool = False) -> RxTuple:
     """Converts the trie node to a tuple of regular expression parts.
 
     A part is either a plain string expression or a frozenset instance.
@@ -298,9 +309,9 @@ def trie_to_regexp_tuple(node, reverse=False):
                 return combine((k,), trie_to_regexp_tuple(n, reverse))
             return ()
     else:
-        seen = []
+        seen: list[Any] = []
         keys = []
-        groups = set()
+        groups: set[str | RxTuple | None] = set()
 
         # group the nodes if they have the same leaf node
         for k, n in node.items():
@@ -316,29 +327,30 @@ def trie_to_regexp_tuple(node, reverse=False):
             else:
                 groups.add(None)    # means optional group, may end here
 
-        for keys, node in zip(keys, seen):
-            if len(keys) == 1:
+        for group_keys, child in zip(keys, seen):
+            if len(group_keys) == 1:
                 if not any(node):
-                    groups.add(keys[0])
+                    groups.add(group_keys[0])
                 else:
-                    groups.add(combine((keys[0],), trie_to_regexp_tuple(node, reverse)))
+                    groups.add(combine((group_keys[0],), trie_to_regexp_tuple(child, reverse)))
             else:
                 if not reverse:
                     # try to optimize the keys backwards
-                    r = trie_to_regexp_tuple(make_trie(keys, True), True)
-                    if r == (frozenset(keys),) and not any(node):
-                        groups.update(keys)
+                    r = trie_to_regexp_tuple(make_trie(group_keys, True), True)
+                    if r == (frozenset(group_keys),) and not any(child):
+                        groups.update(group_keys)
                         continue
-                elif not any(node):
-                    groups.update(keys)
+                elif not any(child):
+                    groups.update(group_keys)
                     continue
                 else:
-                    r = (frozenset(keys),)
-                groups.add(combine(r, trie_to_regexp_tuple(node, reverse)))
-        return groups.pop() if len(groups) == 1 else (frozenset(groups),)
+                    r = (frozenset(group_keys),)
+                groups.add(combine(r, trie_to_regexp_tuple(child, reverse)))
+        return cast("RxTuple", groups.pop()) if len(groups) == 1 else (frozenset(groups),)
+    return ()  # unreachable: the single entry always returns above
 
 
-def build_regexp(r):
+def build_regexp(r: RxTuple) -> str:
     """Convert a tuple to a full regular expression pattern string.
 
     The tuple is described in the :func:`trie_to_regexp_tuple` function doc
@@ -356,7 +368,7 @@ def build_regexp(r):
     adding an extra optimization to look for a common suffix.
 
     """
-    def get_items(r):
+    def get_items(r: RxTuple) -> Iterator[Sequence[Any]]:
         """Yield regexp items from tuple r in tuples (item, mincount, maxcount).
 
         An item is either a string like "aa", or a two-tuple(exprs,
@@ -373,7 +385,7 @@ def build_regexp(r):
                 # item is a frozenset
                 mincount = 1
                 exprs = set()
-                tuples = set()
+                tuples: set[RxTuple] = set()
                 for k in item:
                     if isinstance(k, str):
                         exprs.add(k)
@@ -385,7 +397,7 @@ def build_regexp(r):
                 if len(exprs) == 1 and not tuples:
                     yield exprs.pop(), mincount, 1
                 else:
-                    item = (exprs, tuples)
+                    pair = (exprs, tuples)
                     # optimize for the case of only one subgroup
                     # remove otherwise empty parent group if possible
                     if not exprs and len(tuples) == 1:
@@ -398,14 +410,14 @@ def build_regexp(r):
                         # if we are optional, check if the qualifier of the subgroup
                         # can be altered. Possible when mincount <= 1.
                         elif len(items) == 1 and items[0][1] <= 1:
-                            item, _, maxcount = items[0]
-                            yield item, 0, maxcount
+                            sub, _, maxcount = items[0]
+                            yield sub, 0, maxcount
                         else:
                             yield item, mincount, 1
                     else:
-                        yield item, mincount, 1
+                        yield pair, mincount, 1
 
-    def merge_items(r):
+    def merge_items(r: RxTuple) -> list[list[Any]]:
         """Read items-tuples such as yielded by get_items().
 
         Returns a list of the same items, merging where possible adjacent
@@ -414,7 +426,7 @@ def build_regexp(r):
         a two-tuple(exprs, tuples).
 
         """
-        items = []
+        items: list[list[Any]] = []
         for item, mincount, maxcount in get_items(r):
             if items and items[-1][0] == item:
                 items[-1][1] += mincount
@@ -440,7 +452,7 @@ def build_regexp(r):
         # make the rx
         if isinstance(item, str):
             rx = re.escape(item)
-            enclose = len(item) > 1 and qualifier
+            enclose = bool(len(item) > 1 and qualifier)
             # replace x{1,2} with xx?, looks better and is 3 chars shorter
             if len(rx) == 1 and mincount == 1 and maxcount == 2:
                 rx += rx
@@ -448,7 +460,8 @@ def build_regexp(r):
         else:
             exprs, tuples = item
             # separate single characters from longer strings
-            chars, strings = set(), set()
+            chars: set[str] = set()
+            strings: set[str] = set()
             for k in exprs:
                 (chars if len(k) == 1 else strings).add(k)
             group = []
@@ -466,7 +479,7 @@ def build_regexp(r):
                 enclose = False
             else:
                 rx = '|'.join(group)
-                enclose = len(items) > 1 or qualifier
+                enclose = bool(len(items) > 1 or qualifier)
         if enclose:
             rx = '(?:' + rx + ')'
         result.append(rx + qualifier)
