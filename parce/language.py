@@ -21,14 +21,20 @@
 This module provides the Language class, which serves as the base class
 for all language definitions.
 """
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Self, TYPE_CHECKING
 
 import parce
 import parce.action as a
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
 
 class _LanguageType(type):
     """Language meta type that prints a customized repr string."""
-    def __repr__(cls):
+    def __repr__(cls) -> str:
         return '{}.{}'.format(cls.__module__, cls.__name__)
 
 
@@ -39,11 +45,11 @@ class Language(metaclass=_LanguageType):
     and can be inherited from.
 
     """
-    def __new__(cls):
+    def __new__(cls) -> Self:
         raise RuntimeError('Language should never be instantiated')
 
     @classmethod
-    def comment_common(cls):
+    def comment_common(cls) -> Iterator[LexiconRule]:
         """Provides subtle highlighting within comments.
 
         The default implementation highlights words like TODO, XXX, TEMP, etc.

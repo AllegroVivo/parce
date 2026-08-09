@@ -280,7 +280,7 @@ def events_with_tokens(start_token: Token, last_token: Token) -> Iterator[tuple[
             # context. So it is a child of a lexicon with consume, or a context
             # that was jumped to via a default target. Build a target from root.
             lexicons = [p.lexicon for p in start_token.ancestors()]
-            push(*lexicons[-2::-1])  # reversed, not root
+            push(*cast("list[Lexicon]", lexicons[-2::-1]))  # reversed, not root
 
         for context, slice_ in r.slices(target):
             yield from events(context[slice_])

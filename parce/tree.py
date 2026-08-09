@@ -1110,9 +1110,11 @@ class Range:
                     n = n[i]
                 yield ancestors[-1][0], slice(i, None) # include start token
                 for p, i in ancestors[-2::-1]:
-                    target_factory and target_factory.pop()
+                    if target_factory:
+                        target_factory.pop()
                     yield p, slice(i + 1, None)
-                target_factory and target_factory.pop()
+                if target_factory:
+                    target_factory.pop()
                 start += 1
         else:
             start = 0
@@ -1124,10 +1126,12 @@ class Range:
                 yield self.ancestor, slice(start, end)
                 n = self.ancestor[end]
                 for end in self.end_trail[1:-1]:
-                    target_factory and target_factory.push(n.lexicon)
+                    if target_factory:
+                        target_factory.push(n.lexicon)
                     yield n, slice(end)
                     n = n[end]
-                target_factory and target_factory.push(n.lexicon)
+                if target_factory:
+                    target_factory.push(n.lexicon)
                 yield n, slice(self.end_trail[-1] + 1)   # include end token
         else:
             yield self.ancestor, slice(start, None)
