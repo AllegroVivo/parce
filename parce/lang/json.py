@@ -154,4 +154,4 @@ class JsonTransform(Transform):
                         yield JSON_ESCAPE_CHARS[t.text[1]]
                 else:
                     yield t.text
-        return ''.join(gen())
+        return ''.join(gen()).encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass")
