@@ -21,18 +21,23 @@
 Parse XSLT.
 
 """
+from __future__ import annotations
 
-__all__ = ('Xslt',)
-
+from parce.action import Keyword
 from parce.lang.xml import Xml
 from parce.rule import TEXT, ifeq, ifmember
-from parce.action import Keyword
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from parce.ruleitem import select
+
+__all__ = ('Xslt',)
 
 
 class Xslt(Xml):
     """Xslt is also valid Xml, give Xslt tags the Keyword action."""
     @classmethod
-    def tag_action(cls):
+    def tag_action(cls) -> select:
         """Reimplemented to return Keyword for known Xslt tag names."""
         default = super().tag_action()
         return ifeq(TEXT[:4], "xsl:",

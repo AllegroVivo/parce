@@ -112,7 +112,7 @@ class ItemList(list["Item | Token"]):
             if not i.is_token:
                 yield i
 
-    def grouped_objects(self, *names: str) -> Iterator[list[str | None]]:
+    def grouped_objects(self, *names: str) -> Iterator[list[Any]]:
         """Yield objects in groups, specified by the names.
 
         The order remains the same. For example, when you have a stream of `key`

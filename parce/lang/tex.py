@@ -20,15 +20,24 @@
 """
 TeX and LaTeX.
 """
+from __future__ import annotations
 
-__all__ = ('Latex',)
-
-import re
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from parce import Language, lexicon, default_action
 from parce.action import (
     Character, Comment, Delimiter, Escape, Name, Number, Operator, Pseudo, Text)
 from parce.rule import arg, MATCH, bygroup, ifgroup, ifmember
+
+import re
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.ruleitem import select
+
+
+__all__ = ('Latex',)
 
 
 MATH_ENVIRONMENTS = (
@@ -37,12 +46,12 @@ MATH_ENVIRONMENTS = (
 
 class Latex(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield from cls.common()
         yield default_action, Text
 
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         yield r'(\\begin)(?:\s*(?:(\{)(.*?)(\})|(\[))|(?=[\W\d]))', \
             bygroup(Name.Builtin, Delimiter, Name.Tag, Delimiter, Delimiter.Bracket), \
             ifgroup(5, cls.environment_option, cls.get_environment_target(MATCH[3]))
@@ -60,7 +69,7 @@ class Latex(Language):
         yield from cls.base()
 
     @classmethod
-    def base(cls):
+    def base(cls) -> Iterator[LexiconRule]:
         """Basic stuff."""
         yield r'\\[#$&~^%{}_ ]', Escape
         yield r'[&_^~]', Character.Special
@@ -68,43 +77,43 @@ class Latex(Language):
         yield r'%', Comment, cls.comment
 
     @lexicon(consume=True)
-    def brace(cls):
+    def brace(cls) -> Iterator[LexiconRule]:
         yield r'\}', Delimiter.Brace, -1
         yield from cls.root
 
     @lexicon
-    def option(cls):
+    def option(cls) -> Iterator[LexiconRule]:
         yield r'(\])(?:\s*(\[))?', Delimiter.Bracket, ifgroup(2, 0, -1)
         yield from cls.common()
         yield default_action, Pseudo    # TODO: find better action
 
     @lexicon
-    def environment_option(cls):
+    def environment_option(cls) -> Iterator[LexiconRule]:
         yield r'(\])\s*(?:(\{)(.*?)(\})|(\[))?', \
             bygroup(Delimiter.Bracket, Delimiter, Name.Tag, Delimiter, Delimiter.Bracket), \
                 ifgroup(5, 0, (-1, ifgroup(4, cls.get_environment_target(MATCH[3]))))
         yield from list(cls.option())[1:]   # not the first rule
 
     @lexicon
-    def environment(cls):
+    def environment(cls) -> Iterator[LexiconRule]:
         yield r'(\\end)(?:\s*(\{)(.*?)(\})|(?=[\W\d]))', \
             bygroup(Name.Builtin, Delimiter, Name.Tag, Delimiter), -1
         yield from cls.root
 
     # ------------------------------ math ------------------------------------
     @lexicon
-    def environment_math(cls):
+    def environment_math(cls) -> Iterator[LexiconRule]:
         yield r'(\\end)(?:\s*(\{)(.*?)(\})|(?=[\W\d]))', \
             bygroup(Name.Builtin, Delimiter, Name.Tag, Delimiter), -1
         yield from cls.math_common()
 
     @lexicon(consume=True)
-    def math(cls):
+    def math(cls) -> Iterator[LexiconRule]:
         yield arg(default=r'\}'), Delimiter, -1
         yield from cls.math_common()
 
     @classmethod
-    def math_common(cls):
+    def math_common(cls) -> Iterator[LexiconRule]:
         """Stuff in math mode."""
         yield r'\{', Delimiter.Brace, cls.math
         yield r"[\-+=<>/:!']", Operator
@@ -116,7 +125,7 @@ class Latex(Language):
         yield default_action, Text.Math
 
     @classmethod
-    def get_environment_target(cls, name):
+    def get_environment_target(cls, name: Any) -> select:
         """Return environment target for environment ``name``.
 
         Can be overridden to support special environments.
@@ -126,7 +135,7 @@ class Latex(Language):
 
     # ----------------------------- comments ---------------------------------
     @lexicon(re_flags=re.MULTILINE, consume=True)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         yield '$', None, -1
         yield from cls.comment_common()
 

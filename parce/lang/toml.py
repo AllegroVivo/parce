@@ -34,11 +34,12 @@ from parce.action import (
     Separator, String, Whitespace)
 from parce.rule import TEXT, bygroup, call, select
 
-__all__ = ('Toml',)
-
 if TYPE_CHECKING:
     from parce._types import LexiconRule
     from parce.standardaction import StandardAction
+
+
+__all__ = ('Toml',)
 
 
 # https://tools.ietf.org/html/rfc3339#section-5.6

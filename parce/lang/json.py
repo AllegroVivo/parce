@@ -28,15 +28,21 @@ Objects (``{ ... }``) become ``object`` contexts with alternating ``key`` and
 ``value`` child contexts. Arrays (``[ ... ]``) become ``array`` contexts.
 
 """
+from __future__ import annotations
 
-__all__ = ('Json', 'JsonTransform')
-
-import re
-
-from parce import Language, lexicon, skip, default_action, default_target
+from collections.abc import Iterator
+from parce import Language, default_action, default_target, lexicon, skip
 from parce.action import Delimiter, Name, Number, String
 from parce.rule import chars, words
 from parce.transform import Transform
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.transform import ItemList
+
+
+__all__ = ('Json', 'JsonTransform')
 
 
 JSON_CONSTANTS = {
@@ -58,11 +64,11 @@ JSON_ESCAPE_CHARS = {
 
 class Json(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield from cls.values()
 
     @classmethod
-    def values(cls):
+    def values(cls) -> Iterator[LexiconRule]:
         yield r"\{", Delimiter, cls.object
         yield r"\[", Delimiter, cls.array
         yield '"', String.Start, cls.string
@@ -70,30 +76,30 @@ class Json(Language):
         yield words(JSON_CONSTANTS, r'\b', r'\b'), Name.Constant
 
     @lexicon
-    def object(cls):
+    def object(cls) -> Iterator[LexiconRule]:
         yield r"\}", Delimiter, -1
         yield r"\s+", skip
         yield default_target, cls.key
 
     @lexicon
-    def key(cls):
+    def key(cls) -> Iterator[LexiconRule]:
         yield '"', String.Start, cls.string
         yield ":", Delimiter, -1, cls.value
 
     @lexicon
-    def value(cls):
+    def value(cls) -> Iterator[LexiconRule]:
         yield from cls.values()
         yield ",", Delimiter, -1
         yield r"\}", Delimiter, -2
 
     @lexicon
-    def array(cls):
+    def array(cls) -> Iterator[LexiconRule]:
         yield from cls.values()
         yield ",", Delimiter
         yield r"\]", Delimiter, -1
 
     @lexicon
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         yield '"', String.End, -1
         yield r'\\(?:'+ chars(JSON_ESCAPE_CHARS) + '|u[0-9a-fA-F]{4})', String.Escape
         yield default_action, String
@@ -101,11 +107,12 @@ class Json(Language):
 
 class JsonTransform(Transform):
     """Transforms a Json expression tree to the Python equivalent."""
-    def root(self, items):
+    def root(self, items: ItemList) -> Any:
         for value in self.values(items):
             return value
+        return None
 
-    def values(self, items):
+    def values(self, items: ItemList) -> Iterator[Any]:
         """Yield values like the Json.values() classmethod generates."""
         for i in items:
             if i.is_token:
@@ -119,26 +126,27 @@ class JsonTransform(Transform):
             else:
                 yield i.obj
 
-    def object(self, items):
-        return dict(items.grouped_objects("key", "value"))
+    def object(self, items: ItemList) -> dict[Any, Any]:
+        return dict((k, v) for k, v in items.grouped_objects("key", "value"))
 
-    def key(self, items):
+    def key(self, items: ItemList) -> Any:
         for name, obj in items.items():
             if name == "string":
                 return obj
 
-    def value(self, items):
+    def value(self, items: ItemList) -> Any:
         for value in self.values(items):
             return value
+        return None
 
-    def array(self, items):
+    def array(self, items: ItemList) -> list[Any]:
         return list(self.values(items))
 
-    def string(self, items):
+    def string(self, items: ItemList) -> str:
         if items.peek(-1, String.End):
             del items[-1]   # strip closing quote
-        def gen():
-            for t in items:
+        def gen() -> Iterator[str]:
+            for t in items.tokens():
                 if t.action is String.Escape:
                     if t.text[1] == 'u':
                         yield chr(int(t.text[2:], 16))

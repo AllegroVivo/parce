@@ -20,9 +20,10 @@
 """
 RFC-4180 compliant CSV format
 """
+from __future__ import annotations
 
-__all__ = ('Csv', 'CsvTransform')
-
+from collections.abc import Iterator, Sequence
+from typing import TYPE_CHECKING, Any
 import re
 
 from parce import Language, lexicon, skip, default_action, default_target
@@ -31,16 +32,24 @@ from parce.transform import Transform
 from parce.util import split_list
 import parce.action as a
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.tree import Token
+    from parce.transform import ItemList, Item
+
+
+__all__ = ('Csv', 'CsvTransform')
+
 
 class Csv(Language):
     """RFC-4180 compliant CSV format."""
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """Split a file in records."""
         yield default_target, cls.record
 
     @lexicon(re_flags=re.MULTILINE)
-    def record(cls):
+    def record(cls) -> Iterator[LexiconRule]:
         """Split a record in escaped (string) and non-escaped fields."""
         yield r'$\n?', skip, -1
         yield r'[^,"\n]+(?=$|,|\n)', a.Name
@@ -48,7 +57,7 @@ class Csv(Language):
         yield ',', a.Separator
 
     @lexicon(consume=True)
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         """Handle a quoted string, escaping doubled quotes inside."""
         yield r'""', a.String.Escape
         yield r'(")[ \t]*([^,"\s]+)?', bygroup(a.String.End, a.Invalid), -1
@@ -65,15 +74,15 @@ class CsvTransform(Transform):
         [('a', 'b', None, 'c'), ('d', '', 'e', 'x,y,z')]
 
     """
-    def _interpret(self, token):
+    def _interpret(self, token: Token) -> str:
         """Reimplement to interpret a text value differently, e.g. a number."""
         return token.text
 
-    def root(self, items):
+    def root(self, items: Sequence[Item]) -> list[Any]:
         """Return the list of records."""
         return [i.obj for i in items]
 
-    def record(self, items):
+    def record(self, items: ItemList) -> tuple[Any, ...]:
         """Return the tuple of the fields of one record.
 
         Adjacent commas yield None, but empty quoted strings (``""``) are
@@ -86,19 +95,20 @@ class CsvTransform(Transform):
             else l[0].obj
             for l in split_list(items, ','))
 
-    def string(self, items):
+    def string(self, items: ItemList) -> str:
         """Return a string comprising the contents of the quoted string.
 
         Handles doubled quotes inside, and does not add the outer quotes.
 
         """
-        start, end = 0, len(items) - 1
-        while items[start].action in (a.Invalid, a.String.Start):
+        toks = list(items.tokens())
+        start, end = 0, len(toks) - 1
+        while toks[start].action in (a.Invalid, a.String.Start):
             start += 1
-        while end >= start and items[end].action in (a.String.End, a.Invalid):
+        while end >= start and toks[end].action in (a.String.End, a.Invalid):
             end -= 1
         return ''.join(
             '"' if t.action is a.String.Escape
             else t.text
-            for t in items[start:end+1])
+            for t in toks[start:end+1])
 
