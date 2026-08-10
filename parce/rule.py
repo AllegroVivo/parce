@@ -423,7 +423,7 @@ def arg(
     return pattern(call(build, ARG))
 
 
-def ifarg(pat: str, else_pat: str | None = None) -> ruleitem.pattern:
+def ifarg(pat: str | None, else_pat: str | None = None) -> ruleitem.pattern:
     r"""Create a pattern that returns the specified regular expression ``pat``
     if the lexicon was called with an argument.
 

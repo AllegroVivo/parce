@@ -33,8 +33,10 @@ into a Python value. This function can be used when transforming/parsing the
 Scheme tokens into some data model that access the Scheme values.
 
 """
+from __future__ import annotations
 
-__all__ = ('Scheme', 'SchemeLily', 'scheme_number', 'scheme_number_from_text')
+from collections.abc import Iterator, Iterable, Sequence
+from typing import TYPE_CHECKING
 
 import re
 
@@ -48,6 +50,15 @@ from parce.rule import (
     ARG, MATCH, TEXT, bygroup, call, dselect, findmember, ifarg, ifmember,
     pattern,
 )
+
+if TYPE_CHECKING:
+    from fractions import Fraction
+    from parce._types import LexiconRule
+    from parce.lexicon import Lexicon
+    from parce.ruleitem import RuleItem
+    from parce.tree import Token
+
+__all__ = ('Scheme', 'SchemeLily', 'scheme_number', 'scheme_number_from_text')
 
 
 RE_SCHEME_RIGHT_BOUND = r"(?=$|[()\s;]|#\()"
@@ -65,11 +76,11 @@ RE_SCHEME_ID = r'(?:' + \
 
 class Scheme(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield from cls.common()
 
     @classmethod
-    def common(cls, pop=0):
+    def common(cls, pop: int | Lexicon = 0) -> Iterator[LexiconRule]:
         """Yield common stuff. ``pop`` can be set to -1 for one-arg mode."""
         yield r"['`]|,@?", Delimiter.Scheme.Quote
         yield r"\(", Delimiter.OpenParen, pop, cls.list
@@ -98,24 +109,24 @@ class Scheme(Language):
             yield r"\.(?!\S)", Delimiter.Dot
 
     @lexicon(consume=True)
-    def list(cls):
+    def list(cls) -> Iterator[LexiconRule]:
         yield r"\)", Delimiter.CloseParen, -1
         yield from cls.common()
 
     @lexicon(consume=True)
-    def vector(cls):
+    def vector(cls) -> Iterator[LexiconRule]:
         yield r"\)", Delimiter.CloseVector, -1
         yield from cls.common()
 
     @classmethod
-    def get_word_action(cls):
+    def get_word_action(cls) -> RuleItem:
         """Return a dynamic action that is chosen based on the text."""
         from . import scheme_words
         return ifmember(TEXT, scheme_words.keywords, Keyword, Name)
 
     # -------------- Number ---------------------
     @lexicon(consume=True, re_flags=re.I)
-    def number(self):
+    def number(cls) -> Iterator[LexiconRule]:
         """Decimal numbers, derive with 2 for binary, 8 for octal, 16 for hexadecimal numbers."""
         yield RE_SCHEME_RIGHT_BOUND, None, -1
         _pat = lambda radix: '[{}]+'.format('0123456789abcdef'[:radix or 10])
@@ -134,23 +145,23 @@ class Scheme(Language):
 
     # -------------- String ---------------------
     @lexicon(consume=True)
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         yield r'"', String, -1
         yield from cls.string_common()
 
     @classmethod
-    def string_common(cls):
+    def string_common(cls) -> Iterator[LexiconRule]:
         yield r'\\[\\"|afnrtvb]', String.Escape
         yield default_action, String
 
     # -------------- Comment ---------------------
     @lexicon(consume=True)
-    def multiline_comment(cls):
+    def multiline_comment(cls) -> Iterator[LexiconRule]:
         yield r'!#', Comment, -1
         yield from cls.comment_common()
 
     @lexicon(re_flags=re.MULTILINE, consume=True)
-    def singleline_comment(cls):
+    def singleline_comment(cls) -> Iterator[LexiconRule]:
         yield from cls.comment_common()
         yield r'$', Comment, -1
 
@@ -158,25 +169,28 @@ class Scheme(Language):
 class SchemeLily(Scheme):
     """Scheme used with LilyPond."""
     @lexicon(consume=True)
-    def scheme(cls):
+    def scheme(cls) -> Iterator[LexiconRule]:
         """Pick one thing and pop back."""
         yield r'\s+', skip
         yield from cls.common(cls.argument)
         yield default_target, -1
 
     @lexicon(consume=True)
-    def argument(cls):
+    def argument(cls) -> Iterator[LexiconRule]:
         """One Scheme expression."""
         yield default_target, -2
 
     @classmethod
-    def common(cls, pop=0):
+    def common(cls, pop: Lexicon | int = 0) -> Iterator[LexiconRule]:
         from . import lilypond
         yield r"#{", Bracket.LilyPond.Start, pop, lilypond.LilyPond.schemelily
         yield from super().common(pop)
 
 
-def scheme_number(tokens):
+type SchemeNumber = int | float | complex | Fraction
+
+
+def scheme_number(tokens: Iterable[Token]) -> SchemeNumber:
     """Return the Python value of the Scheme number in the specified tokens
     iterable.
 
@@ -210,7 +224,7 @@ def scheme_number(tokens):
     mantisse_action, radix = Number.Decimal, 10
     exact = None
 
-    def get_uint(tokens):
+    def get_uint(tokens: list[Token]) -> int | float:
         """Get an unsigned integer from the tokens.
 
         Returns a float when there were unknown digits (``#``) and there was
@@ -230,7 +244,7 @@ def scheme_number(tokens):
                 raise ValueError("unknown token in radix {}: {}".format(radix, repr(t.text)))
         return v
 
-    def get_decimal10(tokens):
+    def get_decimal10(tokens: list[Token]) -> int | float | Fraction:
         """Get a decimal10 value from the tokens. Only called in decimal mode."""
         v = []
         e = True
@@ -271,7 +285,7 @@ def scheme_number(tokens):
             return fractions.Fraction(s) if exact else float(s)
         raise ValueError("expecting decimal value")
 
-    def get_real(tokens):
+    def get_real(tokens: list[Token]) -> int | float | Fraction:
         """Return a real value from the tokens (can be int, float or Fraction.)."""
         # get a sign, inf or nan
         i, z = 0, len(tokens)
@@ -294,7 +308,7 @@ def scheme_number(tokens):
             numerator = get_uint(tokens)
             denominator = get_uint(fract[0])
             if isinstance(numerator, float) or isinstance(denominator, float) or exact is False:
-                v = numerator / denominator
+                v: int | float | Fraction = numerator / denominator
             else:
                 v = fractions.Fraction(numerator, denominator)
         elif radix == 10:
@@ -303,7 +317,7 @@ def scheme_number(tokens):
             v = get_uint(tokens)
         return sign * v
 
-    def get_complex(tokens):
+    def get_complex(tokens: list[Token]) -> complex:
         """Return a complex value from the tokens."""
         # find the imaginary part
         i = len(tokens) - 2
@@ -323,7 +337,7 @@ def scheme_number(tokens):
         else:
             raise ValueError("invalid complex number")
         real = get_real(tokens[:i]) if i else 0
-        return complex(real, imag)
+        return complex(real, imag)  # type: ignore[possibly-undefined]  # both breaks assign imag; the while-else raises
 
     ### main function body
     tokens = list(tokens)
@@ -353,7 +367,7 @@ def scheme_number(tokens):
     return get_real(tokens)
 
 
-def scheme_number_from_text(text):
+def scheme_number_from_text(text: str) -> SchemeNumber:
     """Proof-of-concept/test function parsing Scheme/Guile number syntax.
 
     Usage::
@@ -384,7 +398,7 @@ def scheme_number_from_text(text):
     raise ValueError("invalid number: {}".format(repr(text)))
 
 
-def scheme_is_indenting_keyword(text):
+def scheme_is_indenting_keyword(text: str) -> bool:
     """Return True if the keyword ``text`` should cause the next line to indent
     normally, instead of aligning with previous line.
 
