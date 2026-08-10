@@ -31,7 +31,7 @@ or inheriting of Formatter. If you need to convert the TextFormats from the
 theme to something else, you can provide a factory to Formatter to do that.
 
 There is also a :class:`SimpleFormatter` which just churns out the standard
-action of each token as a HTML class string, for example mapping
+action of each token as an HTML class string, for example mapping
 ``Literal.Number`` to ``"literal number"``, without needing a Theme.
 
 If you need more special behaviour, you can inherit from Formatter and
@@ -40,73 +40,83 @@ FormatContext.
 
 
 """
+from __future__ import annotations
 
+from annotationlib import Format
+
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import collections
 
-
 from . import util
+from .standardaction import StandardAction
+
+if TYPE_CHECKING:
+    from parce.language import Language
+    from parce.theme import AbstractTheme
+    from parce.tree import Context, Token
+    from parce.document import Cursor
 
 # if a theme provides an "_unparsed" class, unparsed text is
-# highlighted by the fomatter
-from .standardaction import StandardAction
+# highlighted by the formatter
 _Unparsed = StandardAction("_Unparsed")
 
+class FormatCache(NamedTuple):
+    """FormatCache encapsulates formatting logic.
 
-FormatCache = collections.namedtuple("FormatCache",
-    "theme base textformat baseformat unparsed")
-"""FormatCache is a named tuple encapsulating formatting logic.
+    Attributes:
+        theme: A reference to the format cache's Theme object.
+        base: The result of baseformat("window", "default"), indicating the
+            general format of the text window (color, font, background color, etc.).
+        textformat: A callable that returns formatting information for a standard
+            action.
+        baseformat: A callable that returns general formatting information from a
+            Theme, converted using the factory that was given to the formatter.
+        unparsed: The result of textformat(StandardAction("_Unparsed")), which
+            denotes the text format to use for unparsed text. A Theme can define
+            that by putting properties in the .parce ._unparsed class. By default,
+            unparsed text is not formatted.
+    """
+    theme: AbstractTheme | None
+    base: Any
+    textformat: Callable[[StandardAction], Any]
+    baseformat: Callable[[str, str], Any]
+    unparsed: Any
 
-At least two attributes must be defined:
 
-``textformat(action)``
-    is called to return formatting information for the specified standard
-    action.
-``baseformat(role, state)``
-    is called to return general formatting information from a Theme, converted
-    using the factory that was given to the formatter. See the
-    :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
+class FormatRange(NamedTuple):
+    """A named tuple denoting a text range from ``pos`` to ``end`` that should be
+    formatted with ``textformat``.
 
-Both callables may return None. The three other attributes can be None; they
-are:
+    The textformat can be any object, that depends on the factory function that is
+    used to convert a standard action or (when using a :class:`~parce.theme.Theme`)
+    a :class:`~parce.theme.TextFormat` to something you can use for the output
+    format you want to create.
 
-``theme``
-    a reference to the format cache's Theme object.
+    """
+    pos: int
+    end: int
+    textformat: Any
 
-``base``
-    the result of ``baseformat("window", "default")``, indicating the general
-    format of the text window (color, font, background color, etc). See the
-    :meth:`~parce.theme.Theme.baseformat` method of :class:`~parce.theme.Theme`.
 
-``unparsed``
-    the result of ``textformat(StandardAction("_Unparsed"))``, which denotes
-    the text format to use for unparsed text. A Theme can define that by putting
-    properties in the ``.parce ._unparsed`` class. By default unparsed text is
-    not formatted.
-
-"""
-
-FormatRange = collections.namedtuple("FormatRange", "pos end textformat")
-"""A named tuple denoting a text range from ``pos`` to ``end`` that should be
-formatted with ``textformat``.
-
-The textformat can be any object, that depends on the factory function that is
-used to convert a standard action or (when using a :class:`~parce.theme.Theme`)
-a :class:`~parce.theme.TextFormat` to something you can use for the output
-format you want to create.
-
-"""
+type CacheDict = dict[type[Language] | None, FormatCache]
 
 
 class AbstractFormatter:
     """A Formatter formats text based on the action of tokens."""
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         name = self.__class__.__name__
         themes = ', '.join(repr(fc.theme) for fc in self.format_caches().values())
         return '<{} [{}]>'.format(name, themes)
 
-    def baseformat(self, role="window", state="default", language=None):
+    def baseformat(
+        self,
+        role: str = "window",
+        state: str = "default",
+        language: type[Language] | None = None
+    ) -> Any:
         """Return the base format for the specified ``role`` and ``state``.
 
         This is the value returned by :meth:`Theme.baseformat(role, state)
@@ -125,7 +135,7 @@ class AbstractFormatter:
         except KeyError:
             pass
 
-    def textformat(self, action, language=None):
+    def textformat(self, action: StandardAction, language: type[Language] | None = None) -> Any:
         """Return the text format for the specified action.
 
         This is the value returned by :meth:`Theme.textformat(action)
@@ -144,7 +154,7 @@ class AbstractFormatter:
         except KeyError:
             pass
 
-    def format_caches(self):
+    def format_caches(self) -> CacheDict:
         """Should return a dictionary mapping language to FormatCache.
 
         A :class:`FormatCache` normally encapsulates a theme. The key None
@@ -155,7 +165,13 @@ class AbstractFormatter:
         """
         raise NotImplementedError
 
-    def format_ranges(self, tree, start=0, end=None, format_context=None):
+    def format_ranges(
+        self,
+        tree: Context,
+        start: int = 0,
+        end: int | None =None,
+        format_context: FormatContext | None = None
+    ) -> Iterator[FormatRange]:
         """Yield FormatRange(pos, end, format) three-tuples.
 
         The ``format`` is the value returned by ``Theme.textformat()`` for the
@@ -176,33 +192,35 @@ class AbstractFormatter:
             # there is no default theme, don't yield tokens and use empty fc
             fc = FormatCache(None, None, lambda action: None,
                 lambda role, state: None, None)
-            def tokens():
+            def tokens() -> Iterator[Token]:
                 return
                 yield
         elif len(format_caches) == 1:
             # language will never be switched, no need to follow language
-            def tokens():
+            def tokens() -> Iterator[Token]:
                 return r.tokens()
         else:
             # language can potentially switch, follow it
-            def tokens():
+            def tokens() -> Iterator[Token]:
                 nonlocal fc
                 curlang = None
 
                 # Modifies curlang and current format cache fc if lang changes
-                def check_lang(lang):
+                def check_lang(lang: type[Language] | None) -> None:
                     nonlocal curlang, fc
                     if lang is not curlang:
                         curlang = lang
                         nfc = cache(lang, default_fcache)
+                        assert nfc is not None, f"No default theme, and no theme for language {lang}"
                         if nfc is not fc:
                             fc = nfc
                             if format_context:
                                 format_context.switch(fc)
 
                 for context, slice_ in r.slices():
+                    assert context.lexicon is not None
                     check_lang(context.lexicon.language)
-                    n = context[slice_]
+                    n: Any = context[slice_]
                     stack = []
                     i = 0
                     while True:
@@ -225,7 +243,7 @@ class AbstractFormatter:
 
         if fc.unparsed is not None:
             # Yield the unparsed format between tokens
-            def stream():
+            def stream() -> Iterator[tuple[int, int, Any]]:
                 nonlocal fc
                 unparsed = fc.unparsed      # store it, fc can change
                 prev_end = start
@@ -242,7 +260,7 @@ class AbstractFormatter:
                     yield prev_end, end, unparsed
         else:
             # yield fc.base (if defined) between tokens
-            def stream():
+            def stream() -> Iterator[tuple[int, int, Any]]:
                 nonlocal fc
                 prev_end = start
                 for t in tokens():
@@ -255,12 +273,21 @@ class AbstractFormatter:
                 if fc.base is not None and end is not None and prev_end < end:
                     yield prev_end, end, fc.base
 
-        format_context and format_context.start(fc)
+        if format_context:
+            format_context.start(fc)
         yield from util.merge_adjacent(util.fix_boundaries(
                                           stream(), start, end), FormatRange)
-        format_context and format_context.done()
+        if format_context:
+            format_context.done()
 
-    def format_text(self, text, tree, start=0, end=None, format_context=None):
+    def format_text(
+        self,
+        text: str,
+        tree: Context,
+        start: int = 0,
+        end: int | None = None,
+        format_context: FormatContext | None = None
+    ) -> Iterator[tuple[str, Any]]:
         """Yield all text in tuples(text, format).
 
         For unparsed pieces of text, or pieces that had no format mapped to the
@@ -279,7 +306,11 @@ class AbstractFormatter:
         if end > prev_end:
             yield text[prev_end:end], None
 
-    def format_document(self, cursor, format_context=None):
+    def format_document(
+        self,
+        cursor: Cursor,
+        format_context: FormatContext | None = None
+    ) -> Iterator[tuple[str, Any]]:
         """Yield all text in the cursor's selection in tuples(text, format).
 
         For unparsed pieces of text, or pieces that had no format mapped to the
@@ -305,7 +336,7 @@ class AbstractFormatter:
 
         """
         if cursor.has_selection():
-            doc = cursor.document()
+            doc: Any = cursor.document()  # the full composed Document; get_root comes from WorkerDocumentMixin
             yield from self.format_text(
                 doc.text(), doc.get_root(True), cursor.pos, cursor.end, format_context)
 
@@ -349,15 +380,19 @@ class Formatter(AbstractFormatter):
     theme based on the language of the text.
 
     """
-    def __init__(self, theme=None, factory=None):
+    def __init__(
+        self,
+        theme: AbstractTheme | None = None,
+        factory: Callable[[Any], Any] | None = None
+    ) -> None:
         if factory is None:
             factory = lambda f: f or None
-        self._factory = factory
-        self._format_caches = {}
+        self._factory: Callable[[Any], Any] = factory
+        self._format_caches: CacheDict = {}
         if theme is not None:
             self.add_theme(theme)
 
-    def format_caches(self):
+    def format_caches(self) -> CacheDict:
         """Reimplemented to return the format caches added by add_theme().
 
         The format cache caches formatting information from the theme, to
@@ -366,7 +401,12 @@ class Formatter(AbstractFormatter):
         """
         return self._format_caches
 
-    def add_theme(self, theme, language=None, add_baseformat=False):
+    def add_theme(
+        self,
+        theme: AbstractTheme,
+        language: type[Language] | None = None,
+        add_baseformat: bool = False
+    ) -> None:
         """Add a Theme.
 
         If ``language`` is None, the theme becomes the default theme. If a
@@ -381,23 +421,23 @@ class Formatter(AbstractFormatter):
             base_ = theme.baseformat()
             base = self._factory(base_)
             @util.cached_func
-            def factory(action):
+            def factory(action: StandardAction) -> Any:
                 return self._factory(base_ + theme.textformat(action))
         else:
             base = None
             @util.cached_func
-            def factory(action):
+            def factory(action: StandardAction) -> Any:
                 return self._factory(theme.textformat(action))
 
         @util.cached_func
-        def baseformat(role, state):
+        def baseformat(role: str, state: str) -> Any:
             return self._factory(theme.baseformat(role, state))
 
         unparsed = self._factory(theme.textformat(_Unparsed))
         self.format_caches()[language] = \
             FormatCache(theme, base, factory, baseformat, unparsed)
 
-    def get_theme(self, language=None):
+    def get_theme(self, language: type[Language] | None = None) -> AbstractTheme | None:
         """Return the theme for the specified language.
 
         If language is None, the default theme is returned.
@@ -407,16 +447,17 @@ class Formatter(AbstractFormatter):
         try:
             return self.format_caches()[language].theme
         except KeyError:
-            pass
+            return None
 
-    def remove_theme(self, language):
+    def remove_theme(self, language: type[Language]) -> None:
         """Remove the theme for the specified language."""
         del self.format_caches()[language]
 
-    def copy_themes(self, formatter):
+    def copy_themes(self, formatter: Formatter) -> None:
         """Copy all themes from the other formatter."""
         self.format_caches().clear()
         for language, fc in formatter.format_caches().items():
+            assert fc.theme is not None, "Cannot copy a themeless format cache"
             self.add_theme(fc.theme, language, fc.base is not None)
 
 
@@ -440,7 +481,7 @@ class SimpleFormatter(AbstractFormatter):
     This formatter does not use a theme; language switches are ignored.
 
     """
-    def format_caches(self):
+    def format_caches(self) -> CacheDict:
         """Reimplemented to return a FormatCache with a factory that converts
         an action to a css class string.
 
@@ -460,13 +501,13 @@ class FormatContext:
     react to theme changes during formatting.
 
     """
-    def start(self, fcache):
+    def start(self, fcache: FormatCache) -> None:
         """Called when formatting starts, with the default Theme's format cache."""
 
-    def switch(self, fcache):
+    def switch(self, fcache: FormatCache) -> None:
         """Called whenever formatting switches to a different theme."""
 
-    def done(self):
+    def done(self) -> None:
         """Called when formatting has finished."""
 
 

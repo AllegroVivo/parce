@@ -52,8 +52,20 @@ Usage example::
 
 
 """
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import parce.formatter
+
+if TYPE_CHECKING:
+    from parce.formatter import AbstractFormatter as _FormatterBase
+    from parce.document import Cursor
+    from parce.theme import AbstractTheme, TextFormat
+else:
+    _FormatterBase = object
+
 
 FULL_HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
@@ -70,9 +82,12 @@ FULL_HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 
-class HtmlMixin:
+class HtmlMixin(_FormatterBase):
     """Helper class containing extra methods to generate HTML output."""
-    def full_html(self, cursor, charset="utf-8"):
+    if TYPE_CHECKING:
+        def html(self, cursor: Cursor) -> str: ...
+
+    def full_html(self, cursor: Cursor, charset: str = "utf-8") -> str:
         """Returns the selected text as a complete HTML document.
 
         The charset is included in the HTML header, but the returned string is
@@ -88,12 +103,16 @@ class HtmlMixin:
 
 class HtmlFormatter(HtmlMixin, parce.formatter.Formatter):
     """A Formatter to output HTML."""
-    def __init__(self, theme=None, factory=None):
+    def __init__(
+        self,
+        theme: AbstractTheme | None = None,
+        factory: Callable[[TextFormat], Any] | None = None
+    ) -> None:
         if factory is None:
             factory = lambda tf: inline_css(tf) or None
         super().__init__(theme, factory)
 
-    def html(self, cursor):
+    def html(self, cursor: Cursor) -> str:
         """Return HTML output for the selected range of the cursor.
 
         The text pieces that have some textformat are wrapped in ``<span
@@ -126,7 +145,7 @@ class SimpleHtmlFormatter(HtmlMixin, parce.formatter.SimpleFormatter):
     highlighting.
 
     """
-    def html(self, cursor):
+    def html(self, cursor: Cursor) -> str:
         """Return HTML output for the selected range of the cursor.
 
         The text pieces that have a standard action are wrapped in ``<span
@@ -155,17 +174,17 @@ class SimpleHtmlFormatter(HtmlMixin, parce.formatter.SimpleFormatter):
             for text, fmt in self.format_document(cursor))
 
 
-def escape(text):
+def escape(text: str) -> str:
     r"""Escape &, < and > to use text in HTML."""
     return text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 
 
-def attrescape(text):
+def attrescape(text: str) -> str:
     r"""Escape &, <, > and ", to use text in HTML."""
     return escape(text).replace('"', "&quot;")
 
 
-def inline_css(textformat):
+def inline_css(textformat: TextFormat) -> str:
     """Convert a :class:`~.theme.TextFormat` to an inline CSS string.
 
     The resulting string can be used in a Html ``style`` attribute.
