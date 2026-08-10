@@ -20,7 +20,10 @@
 """
 Helper functions to inspect and document objects.
 """
+from __future__ import annotations
 
+from collections.abc import Iterator, Iterable
+from typing import Any
 
 from .language import Language
 from .lexicon import LexiconDescriptor, Lexicon
@@ -28,7 +31,7 @@ from .ruleitem import Item, variations_tree
 from .standardaction import StandardAction
 
 
-def decision_tree(lexicon, build=False):
+def decision_tree(lexicon: Lexicon, build: bool = False) -> Iterator[Any]:
     """Yield all rules of the lexicon, including variations.
 
     Every rule is a tuple. Items are members of the tuple. A variation (choice)
@@ -39,12 +42,12 @@ def decision_tree(lexicon, build=False):
     instances are replaced.
 
     """
-    rules = lexicon if build else lexicon.descriptor.rules_func(lexicon.language)
+    rules = lexicon if build else (lexicon.descriptor.rules_func(lexicon.language) or ())
     for rule in rules:
         yield variations_tree(rule)
 
 
-def lexicons(language):
+def lexicons(language: type[Language]) -> list[Lexicon]:
     """Return a list of all the lexicons in the language."""
     names = set()
     for lang in language.mro():
@@ -57,9 +60,9 @@ def lexicons(language):
     return [getattr(language, key) for key in sorted(names)]
 
 
-def rule_items(lang):
+def rule_items(lang: type[Language]) -> Iterator[Any]:
     """Yield all rule items in a language, flattening all RuleItem instances."""
-    def flatten(items):
+    def flatten(items: Iterable[Any]) -> Iterator[Any]:
         for i in items:
             if isinstance(i, Item):
                 yield from flatten(i.variations())
@@ -72,7 +75,7 @@ def rule_items(lang):
             yield from flatten(rule)
 
 
-def standardactions(lang):
+def standardactions(lang: type[Language]) -> set[StandardAction]:
     """Return the set of all the StandardAction instances in the language.
 
     Does not follow targets to other languages.
@@ -81,7 +84,7 @@ def standardactions(lang):
     return set(i for i in rule_items(lang) if isinstance(i, StandardAction))
 
 
-def languages(lang):
+def languages(lang: type[Language]) -> set[type[Language]]:
     """Return the set of all languages that this language refers to.
 
     Does not follow targets from languages that are referred to.

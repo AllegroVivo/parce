@@ -470,7 +470,7 @@ class Transformer(util.Observable):
         """
         self._transforms[language] = transform
 
-    def find_transform(self, language: type[Language]) -> Language | None:
+    def find_transform(self, language: type[Language]) -> Transform | None:
         """Try to find a Transform for the specified language definition.
 
         This is done by looking for a Transform subclass in the language's
