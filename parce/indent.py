@@ -304,7 +304,7 @@ class AbstractIndenter:
                 text = block.text()
                 info.indent = text[:-len(text.lstrip())]
             else:
-                info.indent == ""
+                info.indent = ""
         return info
 
     def indent_events(self, block, prev_indents=()):
