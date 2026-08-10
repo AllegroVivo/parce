@@ -21,8 +21,11 @@
 Parse XML.
 
 """
+from __future__ import annotations
 
-__all__ = ('Dtd', 'Xml')
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
 
 import re
 
@@ -32,6 +35,13 @@ from parce.action import (
     Operator, String, Text, Whitespace)
 from parce.rule import (
     MATCH, TEXT, bygroup, call, dselect, ifgroup, select, words)
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.standardaction import StandardAction
+    from parce.ruleitem import RuleItem
+
+__all__ = ('Dtd', 'Xml')
 
 
 # source: https://www.w3.org/TR/xml/#NT-NameStartChar
@@ -49,43 +59,43 @@ RE_XML_NAME_TOKEN = _T_ = fr'[{RE_XML_NAME_CHAR}]*'
 class _XmlBase(Language):
     """Common stuff between Xml and Dtd."""
     @lexicon
-    def dqstring(cls):
+    def dqstring(cls) -> Iterator[LexiconRule]:
         yield r'&\S*?;', String.Escape
         yield default_action, String.Double
         yield r'"', String.Double.End, -1
 
     @lexicon
-    def sqstring(cls):
+    def sqstring(cls) -> Iterator[LexiconRule]:
         yield r'&\S*?;', String.Escape
         yield default_action, String.Single
         yield r"'", String.Single.End, -1
 
     @lexicon
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         yield r'-->', Comment.End, -1
         yield r'--', Comment.Invalid
         yield from cls.comment_common()
 
     @classmethod
-    def common_defs(cls):
+    def common_defs(cls) -> Iterator[LexiconRule]:
         """Common stuff inside DOCTYPE or ENTITY declarations etc."""
         yield from cls.find_strings()
         yield fr'%{_N_};', Name.Entity.Escape
 
     @classmethod
-    def find_strings(cls):
+    def find_strings(cls) -> Iterator[LexiconRule]:
         yield r'"', String.Double.Start, cls.dqstring
         yield r"'", String.Single.Start, cls.sqstring
 
     @classmethod
-    def find_comments(cls):
+    def find_comments(cls) -> Iterator[LexiconRule]:
         yield r'<!--', Comment.Start, cls.comment
 
 
 class Xml(_XmlBase):
     """Parse XML."""
     @lexicon(re_flags=re.IGNORECASE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield from cls.find_comments()
         yield r'(<!\[)(CDATA)(\[)', bygroup(Delimiter, Data.Definition, Delimiter), cls.cdata
         yield fr'(<!)(DOCTYPE)\b(?:\s*({_N_}))?', \
@@ -103,16 +113,16 @@ class Xml(_XmlBase):
         yield default_action, select(call(str.isspace, TEXT), Text, Whitespace)
 
     @lexicon
-    def tag(cls):
+    def tag(cls) -> Iterator[LexiconRule]:
         yield from cls.root()
 
     @lexicon
-    def cdata(cls):
+    def cdata(cls) -> Iterator[LexiconRule]:
         yield default_action, Data
         yield r'\]\]>', Delimiter, -1
 
     @lexicon
-    def processing_instruction(cls):
+    def processing_instruction(cls) -> Iterator[LexiconRule]:
         yield fr'({_N_})\s*?(=)(?=\s*?["\'])', bygroup(Name.Attribute, Operator)
         yield from cls.find_strings()
         yield r'&\S*?;', Escape
@@ -120,7 +130,7 @@ class Xml(_XmlBase):
         yield default_action, Text.Preprocessed
 
     @lexicon
-    def doctype(cls):
+    def doctype(cls) -> Iterator[LexiconRule]:
         yield words(("SYSTEM", "PUBLIC", "NDATA")), Keyword
         yield _N_, Name
         yield from cls.common_defs()
@@ -128,12 +138,12 @@ class Xml(_XmlBase):
         yield r'>', Delimiter, -1
 
     @lexicon
-    def internal_dtd(cls):
+    def internal_dtd(cls) -> Iterator[LexiconRule]:
         yield r'\]', Bracket, -1
         yield from Dtd.root
 
     @lexicon
-    def attrs(cls):
+    def attrs(cls) -> Iterator[LexiconRule]:
         yield _N_, Name.Attribute
         yield r'=', Operator
         yield from cls.find_strings()
@@ -143,7 +153,7 @@ class Xml(_XmlBase):
         yield default_action, Invalid
 
     @classmethod
-    def tag_action(cls):
+    def tag_action(cls) -> StandardAction | RuleItem:
         """Return the action for a tag name.
 
         The default implementation returns the Name.Tag standard action, but
@@ -156,7 +166,7 @@ class Xml(_XmlBase):
 class Dtd(_XmlBase):
     """Parse a DTD (Document Type Definition)."""
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield from cls.find_comments()
         yield fr'(<!)(ENTITY)\b(?:\s*(%))?(?:\s*({_N_}))?', \
             bygroup(Delimiter, Keyword, Keyword, Name.Entity.Definition), cls.entity
@@ -167,14 +177,14 @@ class Dtd(_XmlBase):
         yield default_action, select(call(str.isspace, TEXT), Text, skip)
 
     @lexicon
-    def entity(cls):
+    def entity(cls) -> Iterator[LexiconRule]:
         yield words(("SYSTEM", "PUBLIC", "NDATA")), Keyword
         yield _N_, Name.Entity
         yield from cls.common_defs()
         yield r'>', Delimiter, -1
 
     @lexicon
-    def element(cls):
+    def element(cls) -> Iterator[LexiconRule]:
         yield r'\(', Bracket, cls.element_contents
         yield words(("ANY", "EMPTY")), Name.Keyword
         yield r'[,|?+*]', Operator
@@ -182,13 +192,13 @@ class Dtd(_XmlBase):
         yield r'>', Delimiter, -1
 
     @lexicon
-    def element_contents(cls):
+    def element_contents(cls) -> Iterator[LexiconRule]:
         """Content definition inside a <!ELEMENT > declaration."""
         yield r'#PCDATA', Name.Builtin
         yield from cls.enumerate(r'[,|?+*]', Name.Element)
 
     @lexicon
-    def attlist(cls):
+    def attlist(cls) -> Iterator[LexiconRule]:
         yield words(("#REQUIRED", "#IMPLIED", "#FIXED"), suffix=r'\b'), Name.Builtin
         yield words(('CDATA', 'ID', 'IDREF', 'IDREFS', 'ENTITY', 'ENTITIES',
             'NMTOKEN', 'NMTOKENS'), prefix=r'\b', suffix=r'\b'), Name.Type
@@ -200,21 +210,25 @@ class Dtd(_XmlBase):
         yield r'>', Delimiter, -1
 
     @lexicon
-    def attlist_enumeration(cls):
+    def attlist_enumeration(cls) -> Iterator[LexiconRule]:
         yield from cls.enumerate(r'\|', Data)
 
     @lexicon
-    def attlist_notation(cls):
+    def attlist_notation(cls) -> Iterator[LexiconRule]:
         yield from cls.enumerate(r'\|', Name.Type)
 
     @lexicon
-    def notation(cls):
+    def notation(cls) -> Iterator[LexiconRule]:
         yield words(("SYSTEM", "PUBLIC")), Keyword
         yield from cls.common_defs()
         yield r'>', Delimiter, -1
 
     @classmethod
-    def enumerate(cls, operators=r'\|', nametype=Name.Type):
+    def enumerate(
+        cls,
+        operators: str = r'\|',
+        nametype: StandardAction = Name.Type
+    ) -> Iterator[LexiconRule]:
         """Find names between ( ), and operators, string and parameter entities.
 
         ``operators`` is the regexp for the operators, ``nametype`` the action
@@ -230,11 +244,12 @@ class Dtd(_XmlBase):
 
 class XmlIO(docio.IO):
     """I/O handling for XML."""
-    def find_encoding(self, text):
+    def find_encoding(self, text: str) -> str | None:
         """Find encoding in XML processing instruction."""
         tree = root(Xml.root, text)
         for enc in tree.query.children(Xml.processing_instruction) \
             .children.action(Name.Attribute)('encoding') \
             .right_siblings(Xml.dqstring)[0]:
             return enc.text
+        return None
 

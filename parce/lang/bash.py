@@ -21,8 +21,10 @@
 Bash and other UNIX shell (sh) syntax.
 
 """
+from __future__ import annotations
 
-__all__ = ('Bash',)
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
@@ -30,6 +32,10 @@ from parce import Language, lexicon, skip, default_action, default_target
 from parce.action import *
 from parce.rule import *
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
+__all__ = ('Bash',)
 
 # Main source of information: man bash :-)
 
@@ -53,7 +59,7 @@ class Bash(Language):
     """Bash and other shell syntax."""
 
     @lexicon(re_flags=re.MULTILINE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """Find one or mode command lines.
 
         This lexicon is derived with the special character ````` if called from
@@ -67,7 +73,7 @@ class Bash(Language):
         yield default_target, derive(cls.command, ARG)
 
     @lexicon(re_flags=re.MULTILINE)
-    def command(cls):
+    def command(cls) -> Iterator[LexiconRule]:
         """Find commands and arguments, pops back on line end or when ARG is ahead."""
         arguments = derive(cls.arguments, ARG)  # pass on the ` to arguments lexicon
         yield r'\\\n', Whitespace.Escape
@@ -101,7 +107,7 @@ class Bash(Language):
         yield default_target, arguments
 
     @lexicon(re_flags=re.MULTILINE)
-    def arguments(cls):
+    def arguments(cls) -> Iterator[LexiconRule]:
         """Arguments after a command, called from root."""
         yield arg(prefix='(?=', suffix=')'), None, -2
         yield r'\\\n', Whitespace.Escape
@@ -110,7 +116,7 @@ class Bash(Language):
         yield default_target, -1
 
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         """Yield common stuff: comment, expression, expansions, etc."""
         yield '#', Comment, cls.comment
         yield RE_BRACE, using(cls.brace_expansion)
@@ -130,15 +136,15 @@ class Bash(Language):
         yield RE_WORD, select(call(is_pattern, TEXT), Text, Text.Template)
 
     @classmethod
-    def numeric_common(cls):
-        """Nummeric values."""
+    def numeric_common(cls) -> Iterator[LexiconRule]:
+        """Numeric values."""
         yield r'0\d+', Number.Octal
         yield r'0[xX][0-9a-fA-F]+', Number.Hexadecimal
         yield r'\d+#[0-9a-zA-Z@_]+', Number
         yield r'\d+', Number
 
     @classmethod
-    def expression_common(cls):
+    def expression_common(cls) -> Iterator[LexiconRule]:
         """Common things in expressions."""
         yield from cls.numeric_common()
         yield r'(\w+)[ \t]*(=)', bygroup(Name.Variable.Definition, Operator.Assignment)
@@ -149,7 +155,7 @@ class Bash(Language):
         yield r'=', Operator.Assignment
 
     @classmethod
-    def substitution(cls):
+    def substitution(cls) -> Iterator[LexiconRule]:
         """Variable expansion with ``$``."""
         yield r'(\$)(\(\()', bygroup(Name.Variable, Delimiter.Start), cls.arith_expr
         yield r'(\$)(\()',  bygroup(Name.Variable, Delimiter.Start), cls.subshell
@@ -159,7 +165,7 @@ class Bash(Language):
         yield r'`', Delimiter.Quote, cls.backtick
 
     @classmethod
-    def quoting(cls):
+    def quoting(cls) -> Iterator[LexiconRule]:
         """Escape, single and double quotes."""
         yield r'\\.', Escape
         yield r'"', String.Start, cls.dqstring
@@ -168,20 +174,21 @@ class Bash(Language):
         yield r'\$"', String.Start, cls.dqstring    # translated string
 
     @lexicon
-    def brace_expansion(cls):
+    def brace_expansion(cls) -> Iterator[LexiconRule]:
         """Used to parse a brace expansion."""
         yield from cls.substitution()
         yield from cls.quoting()
         yield default_action, Text.Preprocessed
 
     @classmethod
-    def make_heredoc_regex(cls, m):
+    def make_heredoc_regex(cls, m: re.Match[str]) -> str:
         """Make a regular expression to terminate the here doc with.
 
         The returned pattern is used to terminate the both here_document
         lexicons with.
 
         """
+        assert m.lastindex is not None  # called from a grouped rule match, so lastindex is always set
         pat = m.group(m.lastindex + 5) or m.group(m.lastindex + 4) or m.group(m.lastindex + 3)
         if m.group(m.lastindex + 2) == "<<-":
             # allow stripping tabs from doc and delimiter
@@ -190,20 +197,20 @@ class Bash(Language):
             return r'^(' + re.escape(pat) + r')[\t ]*$'
 
     @lexicon(re_flags=re.MULTILINE)
-    def here_document(cls):
+    def here_document(cls) -> Iterator[LexiconRule]:
         """A here document that is expanded, terminated by ARG."""
         yield arg(escape=False), bygroup(Name.Identifier), -1
         yield from cls.substitution()
         yield default_action, Verbatim
 
     @lexicon(re_flags=re.MULTILINE)
-    def here_document_quoted(cls):
+    def here_document_quoted(cls) -> Iterator[LexiconRule]:
         """A here document that's not expanded, terminated by ARG."""
         yield arg(escape=False), bygroup(Name.Identifier), -1
         yield default_action, Verbatim
 
     @lexicon(re_flags=re.MULTILINE)
-    def here_string(cls):
+    def here_string(cls) -> Iterator[LexiconRule]:
         """A here-string, the text after ``<<<``."""
         yield from cls.substitution()
         yield from cls.quoting()
@@ -211,7 +218,7 @@ class Bash(Language):
         yield default_target, -1
 
     @lexicon(re_flags=re.MULTILINE)
-    def assignment(cls):
+    def assignment(cls) -> Iterator[LexiconRule]:
         """An assignment, the text after ``=``."""
         yield from cls.substitution()
         yield from cls.quoting()
@@ -220,7 +227,7 @@ class Bash(Language):
         yield default_target, -1
 
     @lexicon
-    def dqstring(cls):
+    def dqstring(cls) -> Iterator[LexiconRule]:
         """A double-quoted string."""
         yield r'"', String.End, -1
         yield r'\\[\\$`"\n]', String.Escape
@@ -228,26 +235,26 @@ class Bash(Language):
         yield default_action, String
 
     @lexicon
-    def sqstring(cls):
+    def sqstring(cls) -> Iterator[LexiconRule]:
         """A single-quoted string."""
         yield r"'", String.End, -1
         yield default_action, String
 
     @lexicon
-    def escape_string(cls):
+    def escape_string(cls) -> Iterator[LexiconRule]:
         """A single-quoted string."""
         yield r"'", String.End, -1
         yield r'\\(?:[abeEfnrtv\\\"\'?]|\d{3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|c.)', String.Escape
         yield default_action, String
 
     @lexicon
-    def backtick(cls):
+    def backtick(cls) -> Iterator[LexiconRule]:
         r"""Stuff between ````` ... `````."""
         yield r'`', Delimiter.Quote, -1
         yield from cls.root('`')
 
     @lexicon
-    def parameter(cls):
+    def parameter(cls) -> Iterator[LexiconRule]:
         """Contents of ``${`` ... ``}``."""
         yield r'\}', Name.Variable, -1
         yield r'\d+', Number
@@ -258,7 +265,7 @@ class Bash(Language):
         yield r'[\w*\.?\[\]]+',  select(call(is_pattern, TEXT), Name.Variable, Text.Template)
 
     @lexicon
-    def subscript(cls):
+    def subscript(cls) -> Iterator[LexiconRule]:
         """Contents of ``[`` ... ``]`` in an array reference."""
         yield r'\]', Delimiter.Bracket.End, -1
         yield '[@*]', Character.Special # makes sense in ${bla[@]}
@@ -267,20 +274,20 @@ class Bash(Language):
         yield from cls.quoting()
 
     @lexicon
-    def subshell(cls):
+    def subshell(cls) -> Iterator[LexiconRule]:
         """A subshell ``(`` ... ``)``."""
         yield r'\)', Delimiter.End, -1
         yield from cls.root(')')
 
     @lexicon
-    def group_command(cls):
+    def group_command(cls) -> Iterator[LexiconRule]:
         """A group command ``{ ...; }``."""
         yield r'\}', Bracket.End, -1
         yield from cls.root
 
     # expressions
     @lexicon(re_flags=re.MULTILINE)
-    def let_expr(cls):
+    def let_expr(cls) -> Iterator[LexiconRule]:
         """An expression after ``let``."""
         yield r'$', None, -1
         yield r';', Delimiter, -1
@@ -288,21 +295,21 @@ class Bash(Language):
         yield from cls.common()
 
     @lexicon
-    def arith_expr(cls):
+    def arith_expr(cls) -> Iterator[LexiconRule]:
         """An arithmetic expression ``((`` ... ``))``."""
         yield r'\)\)', Delimiter.End, -1
         yield from cls.expression_common()
         yield from cls.common()
 
     @lexicon
-    def cond_expr(cls):
+    def cond_expr(cls) -> Iterator[LexiconRule]:
         """A conditional expression ``[[`` ... ``]]``."""
         yield r'\]\]', Bracket.End, -1
         yield from cls.expression_common()
         yield from cls.common()
 
     @lexicon
-    def test_expr(cls):
+    def test_expr(cls) -> Iterator[LexiconRule]:
         """A test expression ``[`` ... ``]``."""
         yield r'\]', Bracket.End, -1
         yield r'-[\w-]+', Name.Property     # option
@@ -310,7 +317,7 @@ class Bash(Language):
         yield from cls.common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         """A comment."""
         yield r'$', None, -1
         yield from cls.comment_common()
