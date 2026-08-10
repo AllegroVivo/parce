@@ -21,8 +21,10 @@
 Parse Python.
 
 """
+from __future__ import annotations
 
-__all__ = ('Python', 'PythonConsole')
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
@@ -36,6 +38,13 @@ from parce.rule import (
 
 from . import python_words
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.lexicon import Lexicon
+    from parce.standardaction import StandardAction
+
+__all__ = ('Python', 'PythonConsole')
+
 
 RE_PYTHON_IDENTIFIER = _I_ = r'[^\W\d]\w*'
 RE_PYTHON_HORIZ_SPACE = _S_ = r'[^\S\n]'
@@ -48,7 +57,7 @@ Bytes = Data.Bytes
 
 class Python(Language):
     @lexicon(re_flags=re.MULTILINE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield fr'^{_S_}+($|(?=#))?', ifgroup(1, Whitespace, Whitespace.Indent)
         yield r'@', Name.Decorator, cls.decorator
         yield fr'(class\b){_S_}*({_I_})', bygroup(Keyword,
@@ -64,7 +73,7 @@ class Python(Language):
         yield from cls.common()
 
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         yield r'#', Comment, cls.comment
         yield fr'({_N_})(\s*)', bygroup(Escape, Whitespace)
         yield r'\[', Delimiter, cls.list
@@ -119,7 +128,7 @@ class Python(Language):
         yield r'[.;,:]', Delimiter
 
     @lexicon(re_flags=re.MULTILINE)
-    def decorator(cls):
+    def decorator(cls) -> Iterator[LexiconRule]:
         """A decorator."""
         yield _I_, Name.Decorator
         yield r'\[', Delimiter, cls.item
@@ -130,7 +139,7 @@ class Python(Language):
         yield r'#', Comment, -1, cls.comment
 
     @lexicon
-    def funcdef(cls):
+    def funcdef(cls) -> Iterator[LexiconRule]:
         """A function definition."""
         yield r'\(', Delimiter, cls.signature
         yield r'->', Delimiter.Annotation
@@ -139,14 +148,14 @@ class Python(Language):
         yield from cls.common()
 
     @lexicon
-    def signature(cls):
+    def signature(cls) -> Iterator[LexiconRule]:
         """A function signature."""
         yield r'\)', Delimiter, -1
         yield r':', Delimiter.Annotation
         yield from cls.common()
 
     @lexicon
-    def classdef(cls):
+    def classdef(cls) -> Iterator[LexiconRule]:
         """A class definition."""
         yield r'\(', Delimiter, cls.bases
         yield ":", Delimiter.Indent, -1
@@ -154,46 +163,50 @@ class Python(Language):
         yield from cls.common()
 
     @lexicon
-    def bases(cls):
+    def bases(cls) -> Iterator[LexiconRule]:
         """The base classes in a class definition."""
         yield r'\)', Delimiter, -1
         yield from cls.common()
 
     ## ------ expressions -----------
     @lexicon
-    def item(cls):
+    def item(cls) -> Iterator[LexiconRule]:
         """Stuff between xxx[ and ] (getitem)."""
         yield r'\]', Delimiter, -1
         yield from cls.common()
 
     @lexicon
-    def call(cls):
+    def call(cls) -> Iterator[LexiconRule]:
         """Stuff between xxx( and ) (call)."""
         yield r'\)', Delimiter, -1
         yield from cls.common()
 
     ## ----- item types -------------
     @lexicon
-    def list(cls):
+    def list(cls) -> Iterator[LexiconRule]:
         yield r'\]', Delimiter, -1
         yield ',', Delimiter
         yield from cls.common()
 
     @lexicon
-    def tuple(cls):
+    def tuple(cls) -> Iterator[LexiconRule]:
         yield r'\)', Delimiter, -1
         yield ',', Delimiter
         yield from cls.common()
 
     @lexicon
-    def dict(cls):
+    def dict(cls) -> Iterator[LexiconRule]:
         yield r'\}', Delimiter, -1
         yield '[,:]', Delimiter
         yield from cls.common()
 
     ## ------- strings --------------
     @classmethod
-    def find_string_literals(cls, target=None, allow_newlines=None):
+    def find_string_literals(
+        cls,
+        target: int | Lexicon | None = None,
+        allow_newlines: bool | None = None
+    ) -> Iterator[LexiconRule]:
         """Find string literals."""
         # short strings not closed on the same line are invalid
         yield r'''[rRuUfF]{,2}["']$''', String.Invalid
@@ -230,7 +243,7 @@ class Python(Language):
             target, derive(cls.short_string_format, MATCH[2])
 
     @lexicon
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         """All strings end here, check [slice] notation and concatenated literals."""
         yield _N_, Escape
         yield ifarg(r'\s+', r'[ \t]+'), skip    # allow newline inside arglists, tuples, etc
@@ -239,33 +252,33 @@ class Python(Language):
         yield default_target, -1
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_string(cls):
+    def short_string(cls) -> Iterator[LexiconRule]:
         yield from cls.string_escape()
         yield from cls.short_string_common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_string_raw(cls):
+    def short_string_raw(cls) -> Iterator[LexiconRule]:
         yield from cls.short_string_raw_common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_string_format(cls):
+    def short_string_format(cls) -> Iterator[LexiconRule]:
         yield from cls.string_formatstring()
         yield from cls.string_escape()
         yield from cls.short_string_common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_string_raw_format(cls):
+    def short_string_raw_format(cls) -> Iterator[LexiconRule]:
         yield from cls.string_formatstring()
         yield from cls.short_string_raw_common()
 
     @classmethod
-    def short_string_common(cls):
+    def short_string_common(cls) -> Iterator[LexiconRule]:
         yield arg(), String.End, -1
         yield pattern(ifeq(ARG, "'", r"[^']*?$", r'[^"]*?$')), String.Invalid, -1
         yield default_action, String
 
     @classmethod
-    def short_string_raw_common(cls):
+    def short_string_raw_common(cls) -> Iterator[LexiconRule]:
         yield arg(), String.End, -1
         yield r'\\\\', String
         yield pattern(ifeq(ARG, "'", fr"([^\\']*?|\\'{_S_}*)$", fr'([^\\"]*?|\\"{_S_}*)$')), String.Invalid, -1
@@ -273,66 +286,70 @@ class Python(Language):
         yield default_action, String
 
     @lexicon
-    def long_string(cls):
+    def long_string(cls) -> Iterator[LexiconRule]:
         yield from cls.string_escape()
         yield from cls.long_string_common()
 
     @lexicon
-    def long_string_raw(cls):
+    def long_string_raw(cls) -> Iterator[LexiconRule]:
         yield arg(prefix=r'\\'), String  # escape quote, but the \ remains
         yield from cls.long_string_common()
 
     @lexicon
-    def long_string_format(cls):
+    def long_string_format(cls) -> Iterator[LexiconRule]:
         yield from cls.string_formatstring()
         yield from cls.string_escape()
         yield from cls.long_string_common()
 
     @lexicon
-    def long_string_raw_format(cls):
+    def long_string_raw_format(cls) -> Iterator[LexiconRule]:
         yield arg(prefix=r'\\'), String  # escape quote, but the \ remains
         yield from cls.string_formatstring()
         yield from cls.long_string_common()
 
     @classmethod
-    def long_string_common(cls):
+    def long_string_common(cls) -> Iterator[LexiconRule]:
         yield arg(), String.End, -1
         yield default_action, String
 
     # ------ stuff common for short and long strings ---------
     @classmethod
-    def string_escape(cls):
+    def string_escape(cls) -> Iterator[LexiconRule]:
         yield from cls.bytes_escape(String.Escape)
         yield r'\\N\{[^\}]+\}', String.Escape
         yield r'\\u[0-9a-fA-F]{4}', String.Escape
         yield r'\\U[0-9a-fA-F]{8}', String.Escape
 
     @classmethod
-    def string_formatstring(cls):
+    def string_formatstring(cls) -> Iterator[LexiconRule]:
         yield r'\{\{|\}\}', String.Escape
         yield r'\{', Delimiter.Template, cls.string_format_expr
 
     @lexicon
-    def string_format_expr(cls):
+    def string_format_expr(cls) -> Iterator[LexiconRule]:
         yield '![sra]', Character
         yield ':', Delimiter, cls.string_format_spec
         yield r'\}', Delimiter.Template, -1
         yield from cls.common()
 
     @lexicon
-    def string_format_spec(cls):
+    def string_format_spec(cls) -> Iterator[LexiconRule]:
         yield r'\{', Delimiter, cls.string_format_spec_nested
         yield r'\}', Delimiter.Template, -2
         yield from cls.common() # TODO maybe really parse format strings
 
     @lexicon
-    def string_format_spec_nested(cls):
+    def string_format_spec_nested(cls) -> Iterator[LexiconRule]:
         yield r'\}', Delimiter, -1
         yield from cls.common()
 
     # ----------------- bytes --------------------
     @classmethod
-    def find_bytes_literals(cls, target=None, allow_newlines=None):
+    def find_bytes_literals(
+        cls,
+        target: int | Lexicon | None = None,
+        allow_newlines: bool | None = None
+    ) -> Iterator[LexiconRule]:
         """Find bytes literals."""
         # short bytes not closed on the same line are invalid
         yield r'''[rRbB]{,2}["']$''', Bytes.Invalid
@@ -357,7 +374,7 @@ class Python(Language):
             target, derive(cls.short_bytes, MATCH[2])
 
     @lexicon
-    def bytes(cls):
+    def bytes(cls) -> Iterator[LexiconRule]:
         """All bytes end here, check [slice] notation and concatenated literals."""
         yield _N_, Escape
         yield ifarg(r'\s+', r'[ \t]+'), skip    # allow newline inside arglists, tuples, etc
@@ -366,50 +383,50 @@ class Python(Language):
         yield default_target, -1
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_bytes(cls):
+    def short_bytes(cls) -> Iterator[LexiconRule]:
         yield from cls.bytes_escape()
         yield from cls.short_bytes_common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def short_bytes_raw(cls):
+    def short_bytes_raw(cls) -> Iterator[LexiconRule]:
         yield from cls.short_bytes_raw_common()
 
     @lexicon
-    def long_bytes(cls):
+    def long_bytes(cls) -> Iterator[LexiconRule]:
         yield from cls.bytes_escape()
         yield from cls.long_bytes_common()
 
     @lexicon
-    def long_bytes_raw(cls):
+    def long_bytes_raw(cls) -> Iterator[LexiconRule]:
         yield from cls.long_bytes_common()
 
     @classmethod
-    def short_bytes_common(cls):
+    def short_bytes_common(cls) -> Iterator[LexiconRule]:
         yield arg(), Bytes.End, -1
         yield pattern(ifeq(ARG, "'", r"[^']*?$", r'[^"]*?$')), Bytes.Invalid, -1
         yield default_action, Bytes
 
     @classmethod
-    def short_bytes_raw_common(cls):
+    def short_bytes_raw_common(cls) -> Iterator[LexiconRule]:
         yield r'\\\\', Bytes
         yield pattern(ifeq(ARG, "'", fr"([^\\']*?|\\'{_S_}*)$", fr'([^\\"]*?|\\"{_S_}*)$')), Bytes.Invalid, -1
         yield arg(prefix=r'\\'), Bytes  # escape quote, but the \ remains
         yield from cls.long_bytes_common()
 
     @classmethod
-    def long_bytes_common(cls):
+    def long_bytes_common(cls) -> Iterator[LexiconRule]:
         yield arg(), Bytes.End, -1
         yield default_action, Bytes
 
     @classmethod
-    def bytes_escape(cls, action=Bytes.Escape):
+    def bytes_escape(cls, action: StandardAction = Bytes.Escape) -> Iterator[LexiconRule]:
         yield r'''\\[\n\\'"abfnrtv]''', action
         yield r'\\\d{1,3}', action
         yield r'\\x[0-9a-fA-F]{2}', action
 
     ## ------- comments -------------
     @lexicon(re_flags=re.MULTILINE)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         yield from cls.comment_common()
         yield r'$', Comment, -1
 
@@ -423,33 +440,33 @@ RE_PYTHON_CONTINUATION_PROMPT = r'(?:(?<=\n)|^)\.\.\.(?: |$|(?=\n))'
 class PythonConsole(Python):
     """Python console input and output with prompt."""
     @lexicon(re_flags=re.MULTILINE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r'(?=^Traceback \(most recent call last\):)', Literal.Error, cls.traceback
         yield RE_PYTHON_NO_PROMPT, Literal.Output
         yield from super().root
 
     @classmethod
-    def common(cls):
+    def common(cls) -> Iterator[LexiconRule]:
         yield RE_PYTHON_PROMPT, Literal.Prompt
         yield from super().common()
 
     @classmethod
-    def long_string_common(cls):
+    def long_string_common(cls) -> Iterator[LexiconRule]:
         yield RE_PYTHON_CONTINUATION_PROMPT, Literal.Prompt
         yield from super().long_string_common()
 
     @classmethod
-    def long_bytes_common(cls):
+    def long_bytes_common(cls) -> Iterator[LexiconRule]:
         yield RE_PYTHON_CONTINUATION_PROMPT, Literal.Prompt
         yield from super().long_bytes_common()
 
     @lexicon(re_flags=re.MULTILINE)
-    def traceback(cls):
+    def traceback(cls) -> Iterator[LexiconRule]:
         yield r'(?=^>>>)', Literal.Prompt, -1
         yield default_action, Literal.Error
 
 
-def isclassname(text):
+def isclassname(text: str) -> bool:
     """Return True if text starts with uppercase letter.
 
     Starting underscores are skipped.
