@@ -21,14 +21,23 @@
 Parse C.
 
 """
+from __future__ import annotations
 
-__all__ = ('C',)
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
 from parce import Language, lexicon, default_action, default_target, skip
 from parce.action import *
 from parce.rule import *
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
+
+__all__ = ('C',)
+
 
 # support C/C++ UCN
 RE_C_IDENT_ESCAPE = _E_ = r'\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8}'
@@ -47,7 +56,7 @@ RE_C_NUMBER = (r'[-+]?(?:'
 
 class C(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         """All C language constructs."""
         yield r'(struct|union|enum)\b', Keyword, cls.class_name
         yield words(C_TYPES, suffix=r'\b'), Name.Type
@@ -69,32 +78,32 @@ class C(Language):
         yield r'=', Operator.Assignment
 
     @lexicon
-    def compound(cls):
+    def compound(cls) -> Iterator[LexiconRule]:
         """Stuff between ``{`` ... ``}``."""
         yield r'\}', Bracket.End, -1
         yield from cls.root
 
     @lexicon
-    def paren(cls):
+    def paren(cls) -> Iterator[LexiconRule]:
         """Stuff between ``(`` ... ``)``."""
         yield r'\)', Delimiter, -1
         yield from cls.root
 
     @lexicon
-    def arguments(cls):
+    def arguments(cls) -> Iterator[LexiconRule]:
         """Stuff between ``name(`` ... ``)``."""
         yield r'\)', Delimiter, -1
         yield from cls.root
 
     @lexicon
-    def class_name(cls):
+    def class_name(cls) -> Iterator[LexiconRule]:
         """The class name after struct, union or enum."""
         yield RE_C_IDENT, using(cls._class_name), -1
         yield r'\s+', skip
         yield default_target, -1
 
     @lexicon(re_flags=re.MULTILINE)
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         """A double-quoted string."""
         yield r'"', String.End, -1
         yield r'\\["\\nrbtfav?]', String.Escape
@@ -104,7 +113,7 @@ class C(Language):
         yield default_action, String
 
     @lexicon
-    def macro(cls):
+    def macro(cls) -> Iterator[LexiconRule]:
         """Stuff after ``#``."""
         yield r'include\b', Keyword.Preprocessed
         yield '"', String.Start, cls.string
@@ -116,28 +125,28 @@ class C(Language):
     # var/class/funcnames
 
     @lexicon
-    def _class_name(cls):
+    def _class_name(cls) -> Iterator[LexiconRule]:
         yield RE_C_IDENT_ESCAPE, Escape
         yield default_action, Name.Class
 
     @lexicon
-    def _func_name(cls):
+    def _func_name(cls) -> Iterator[LexiconRule]:
         yield RE_C_IDENT_ESCAPE, Escape
         yield default_action, Name.Function
 
     @lexicon
-    def _variable_name(cls):
+    def _variable_name(cls) -> Iterator[LexiconRule]:
         yield RE_C_IDENT_ESCAPE, Escape
         yield default_action, Name.Variable
 
     #------------------ comments -------------------------
     @lexicon(re_flags=re.MULTILINE)
-    def singleline_comment(cls):
+    def singleline_comment(cls) -> Iterator[LexiconRule]:
         yield '$', None, -1
         yield from cls.comment_common()
 
     @lexicon
-    def multiline_comment(cls):
+    def multiline_comment(cls) -> Iterator[LexiconRule]:
         yield r'\*/', Comment.End, -1
         yield from cls.comment_common()
 

@@ -21,8 +21,10 @@
 Tom's Obvious, Minimal Language.
 https://github.com/toml-lang/toml
 """
+from __future__ import annotations
 
-__all__ = ('Toml',)
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
@@ -31,6 +33,12 @@ from parce.action import (
     Bracket, Comment, Delimiter, Invalid, Literal, Number, Name, Operator,
     Separator, String, Whitespace)
 from parce.rule import TEXT, bygroup, call, select
+
+__all__ = ('Toml',)
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.standardaction import StandardAction
 
 
 # https://tools.ietf.org/html/rfc3339#section-5.6
@@ -49,7 +57,7 @@ RE_DEC = r'[-+]?\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)+)?(?:[eE][-+]?\d(?:_?\d)*)?'
 
 class Toml(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, cls.comment
         yield r'(\[\[)(?:[ \t]*(\.))?', bygroup(Bracket.Start, Invalid), cls.array_table
         yield r'(\[)(?:[ \t]*(\.))?', bygroup(Bracket.Start, Invalid), cls.table
@@ -59,31 +67,31 @@ class Toml(Language):
         yield default_target, cls.key
 
     @lexicon
-    def table(cls):
+    def table(cls) -> Iterator[LexiconRule]:
         yield r'(?:(\.)[ \t]*)?(\])([^\n#]*)', \
             bygroup(Invalid, Bracket.End, select(call(str.isspace, TEXT), Invalid, skip)), -1
         yield from cls.keys(Name.Namespace)
 
     @lexicon
-    def array_table(cls):
+    def array_table(cls) -> Iterator[LexiconRule]:
         yield r'(?:(\.)[ \t]*)?(\]\])([^\n#]*)', \
             bygroup(Invalid, Bracket.End, select(call(str.isspace, TEXT), Invalid, skip)), -1
         yield from cls.keys(Name.Namespace)
 
     @lexicon(re_flags=re.MULTILINE)
-    def key(cls):
+    def key(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, -1, cls.comment
         yield r'=', Operator.Assignment, -1, cls.value
         yield from cls.keys()
 
     @lexicon(re_flags=re.MULTILINE)
-    def value(cls):
+    def value(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, -1, cls.comment
         yield r'$', None, -1
         yield from cls.values()
 
     @classmethod
-    def keys(cls, action=Name.Variable):
+    def keys(cls, action: StandardAction = Name.Variable) -> Iterator[LexiconRule]:
         yield r'[A-Za-z0-9_-]+', action
         yield r'''(\.)(?=[ \t]*[\}\],'"A-Za-z0-9_-])''', Delimiter.Dot
         yield r'"', String, cls.string_basic
@@ -92,7 +100,7 @@ class Toml(Language):
         yield r'[^\s#=\]]+', Invalid
 
     @classmethod
-    def values(cls):
+    def values(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, cls.comment
         yield r'\[', Bracket, cls.array
         yield r'\{', Bracket, cls.inline_table
@@ -112,13 +120,13 @@ class Toml(Language):
         yield r'\S+', Invalid
 
     @lexicon
-    def array(cls):
+    def array(cls) -> Iterator[LexiconRule]:
         yield r'(\])([^,}#\n\]]*)', bygroup(Bracket, select(call(str.isspace, TEXT), Invalid, skip)), -1
         yield r',', Separator
         yield from cls.values()
 
     @lexicon
-    def inline_table(cls):
+    def inline_table(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, cls.comment
         yield r'\}', Bracket, -1
         yield r'=', Operator.Assignment.Invalid
@@ -126,20 +134,20 @@ class Toml(Language):
         yield default_target, cls.inline_key
 
     @lexicon
-    def inline_key(cls):
+    def inline_key(cls) -> Iterator[LexiconRule]:
         yield r'=', Operator.Assignment, -1, cls.inline_value
         yield r'\}', Bracket.Invalid, -1
         yield from cls.keys()
 
     @lexicon
-    def inline_value(cls):
+    def inline_value(cls) -> Iterator[LexiconRule]:
         yield '#', Comment, cls.comment
         yield r'\}', Bracket, -2
         yield r',', Separator, -1
         yield from cls.values()
 
     @lexicon
-    def string_multiline_basic(cls):
+    def string_multiline_basic(cls) -> Iterator[LexiconRule]:
         yield r'(""")([^\s,}#\]]*)', bygroup(String, Invalid), -1
         yield r'\\\s+', Whitespace
         yield r'\\(?:["\\bfnrt]|u[0-9a-fA-F]{4})', String.Escape
@@ -147,7 +155,7 @@ class Toml(Language):
         yield default_action, String
 
     @lexicon(re_flags=re.MULTILINE)
-    def string_basic(cls):
+    def string_basic(cls) -> Iterator[LexiconRule]:
         yield r'(")([^\s,}#\]=]*)', bygroup(String, Invalid), -1
         yield r'\\(?:["\\bfnrt]|u[0-9a-fA-F]{4})', String.Escape
         yield r'\\.', String.Invalid
@@ -155,18 +163,18 @@ class Toml(Language):
         yield default_action, String
 
     @lexicon
-    def string_multiline_literal(cls):
+    def string_multiline_literal(cls) -> Iterator[LexiconRule]:
         yield r"(''')([^\s,}#\]]*)", bygroup(String, Invalid), -1
         yield default_action, String
 
     @lexicon(re_flags=re.MULTILINE)
-    def string_literal(cls):
+    def string_literal(cls) -> Iterator[LexiconRule]:
         yield r"(')([^\s,}#\]=]*)", bygroup(String, Invalid), -1
         yield r"[^']*?$", String.Invalid, -1
         yield default_action, String
 
     @lexicon(re_flags=re.MULTILINE)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         yield from cls.comment_common()
         yield r'$', Comment, -1
 
