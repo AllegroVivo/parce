@@ -51,6 +51,26 @@ all standard actions can be accessed via the ``a`` prefix, like ``a.Text``.
    The version as a string.
 
 """
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Iterable, Iterator
+from typing import Literal, TYPE_CHECKING, Any, overload
+
+from . import docio, document, lexer, rule, ruleitem, treebuilder, work, util
+from .language import Language
+from .document import Cursor
+from .pkginfo import version, version_string
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule, RootLexicon
+    from parce.lexicon import LexiconDescriptor, Lexicon
+    from parce.work import Worker
+    from parce.transform import Transformer
+    from parce.tree import Context
+    from parce.theme import Theme
+    from parce.lexer import Event
+
 
 # imported when using from parce import *
 __all__ = (
@@ -74,16 +94,21 @@ __all__ = (
 
     # other
     'DocumentInterface',
-
 )
 
-from . import docio, document, lexer, rule, ruleitem, treebuilder, work, util
-from .language import Language
-from .document import Cursor
-from .pkginfo import version, version_string
+type RulesFunc = Callable[[Any], Iterable[LexiconRule] | None]
 
+@overload
+def lexicon(rules_func: RulesFunc) -> LexiconDescriptor: ...
 
-def lexicon(rules_func=None, **kwargs):
+@overload
+def lexicon(
+    *,
+    re_flags: int = 0,
+    consume: bool = False
+) -> Callable[[RulesFunc], LexiconDescriptor]: ...
+
+def lexicon(rules_func: RulesFunc | None = None, **kwargs: Any) -> Any:
     """Lexicon factory decorator.
 
     Use this decorator to make a function in a Language class definition a
@@ -114,7 +139,7 @@ def lexicon(rules_func=None, **kwargs):
     from parce.lexicon import LexiconDescriptor
     if rules_func and not kwargs:
         return LexiconDescriptor(rules_func)
-    def lexicon(rules_func):
+    def lexicon(rules_func: RulesFunc) -> LexiconDescriptor:
         return LexiconDescriptor(rules_func, **kwargs)
     return lexicon
 
@@ -127,7 +152,15 @@ class DocumentInterface(docio.DocumentIOMixin, work.WorkerDocumentMixin, documen
     parce Document.
 
     """
-    def __init__(self, root_lexicon=None, text="", url=None, encoding=None, worker=None, transformer=None):
+    def __init__(
+        self,
+        root_lexicon: Lexicon | None = None,
+        text: str = "",
+        url: str | None = None,
+        encoding: str | None = None,
+        worker: Worker | None = None,
+        transformer: Transformer | Literal[True] | None = None
+    ) -> None:
         super(work.WorkerDocumentMixin, self).__init__(text, url, encoding)
         work.WorkerDocumentMixin.__init__(self, root_lexicon, text, worker, transformer)
 
@@ -217,21 +250,35 @@ class Document(DocumentInterface, document.Document):
         {'key': [1, 2, 3, 4, 5, 6, 7, 8, 9]}
 
     """
-    def __init__(self, root_lexicon=None, text="", url=None, encoding=None, worker=None, transformer=None):
+    def __init__(
+        self,
+        root_lexicon: Lexicon | None = None,
+        text: str = "",
+        url: str | None = None,
+        encoding: str | None = None,
+        worker: Worker | None = None,
+        transformer: Transformer | None = None
+    ) -> None:
         DocumentInterface.__init__(self, root_lexicon, text, url, encoding, worker, transformer)
         self.worker().connect("tree_finished", self._slot_tree_finished)
         self.worker().connect("transform_finished", self._slot_transform_finished)
 
-    def _slot_tree_finished(self):
+    def _slot_tree_finished(self) -> None:
         b = self.builder()
         self.emit("tree_updated", b.start, b.end)
         self.emit("tree_finished")
 
-    def _slot_transform_finished(self):
+    def _slot_transform_finished(self) -> None:
         self.emit("transform_finished")
 
 
-def find(name=None, *, filename=None, mimetype=None, contents=None):
+def find(
+    name: str | None = None,
+    *,
+    filename: str | None = None,
+    mimetype: str | None = None,
+    contents: str | None = None,
+) -> Lexicon | None:
     """Find a root lexicon, either by language name, or by filename, mimetype
     and/or contents.
 
@@ -265,23 +312,23 @@ def find(name=None, *, filename=None, mimetype=None, contents=None):
     return r.find(name, filename=filename, mimetype=mimetype, contents=contents)
 
 
-def root(root_lexicon, text):
+def root(root_lexicon: Lexicon, text: str) -> Context:
     """Return the root context of the tree structure of all tokens from text."""
     return treebuilder.build_tree(root_lexicon, text)
 
 
-def events(root_lexicon, text):
+def events(root_lexicon: Lexicon, text: str) -> Iterator[Event]:
     """Convenience function that yields all the events from the text."""
     return lexer.Lexer([root_lexicon]).events(text)
 
 
-def theme_by_name(name="default"):
+def theme_by_name(name: str = "default") -> Theme:
     """Return a Theme from the default themes in the themes/ directory."""
     from . import theme, themes
     return theme.Theme(themes.filename(name))
 
 
-def theme_from_file(filename):
+def theme_from_file(filename: str) -> Theme:
     """Return a Theme loaded from the specified CSS filename."""
     from .theme import Theme
     return Theme(filename)
