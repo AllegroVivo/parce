@@ -23,6 +23,9 @@ Parse JavaScript.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
 import re
 
 from parce import Language, lexicon, skip, default_action
@@ -33,6 +36,10 @@ from parce.action import (
 
 from parce.unicharclass import categories
 from . import javascript_words as js
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
 
 __all__ = ('JavaScript',)
 
@@ -48,7 +55,7 @@ RE_JS_REGEXP = r'/(?:\\.|[^\\\n/\[]|\[(?:\\.|[^\\\n\]])*\])+/[gimsuy]?'
 
 class JavaScript(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r"'", String.Start, cls.string("'")
         yield r'"', String.Start, cls.string('"')
         yield r'`', String.Start, cls.template_literal
@@ -85,51 +92,51 @@ class JavaScript(Language):
         yield r';', Delimiter
 
     @lexicon
-    def scope(cls):
+    def scope(cls) -> Iterator[LexiconRule]:
         yield r'\}', Bracket.End, -1
         yield from cls.root
 
     @lexicon
-    def call(cls):
+    def call(cls) -> Iterator[LexiconRule]:
         """name(...) syntax."""
         yield r'\)', Delimiter, -1
         yield from cls.root
 
     @classmethod
-    def expression(cls):
+    def expression(cls) -> Iterator[LexiconRule]:
         """Stuff between ( ) or [ ]"""
         yield r'\{', Bracket.Start, cls.object
         yield from cls.root
 
     @lexicon
-    def object(cls):
+    def object(cls) -> Iterator[LexiconRule]:
         """An object (dictionary) { ... }."""
         yield r'[:,]', Separator
         yield r'\}', Bracket.End, -1
         yield from cls.expression()
 
     @lexicon
-    def array(cls):
+    def array(cls) -> Iterator[LexiconRule]:
         """An array [ ... ]."""
         yield r',', Separator
         yield r'\]', Bracket.End, -1
         yield from cls.expression()
 
     @lexicon
-    def paren(cls):
+    def paren(cls) -> Iterator[LexiconRule]:
         """An expression between ( ... )."""
         yield r',', Separator
         yield r'\)', Delimiter, -1
         yield from cls.expression()
 
     @lexicon
-    def index(cls):
+    def index(cls) -> Iterator[LexiconRule]:
         """name[...] syntax."""
         yield r'\]', Delimiter, -1
         yield from cls.root
 
     @lexicon
-    def string(cls):
+    def string(cls) -> Iterator[LexiconRule]:
         yield arg(), String.End, -1
         yield (r'''\\(?:[0"'\\nrvtbf]'''
             r'|x[a-fA-F0-9]{2}'
@@ -138,25 +145,25 @@ class JavaScript(Language):
         yield default_action, String
 
     @lexicon
-    def template_literal(cls):
+    def template_literal(cls) -> Iterator[LexiconRule]:
         yield from cls.string('`')
         yield r'\\[$`]', String.Escape
         yield r'\$\{', Delimiter.Template, cls.template_literal_expression
 
     @lexicon
-    def template_literal_expression(cls):
+    def template_literal_expression(cls) -> Iterator[LexiconRule]:
         yield r'\}', Delimiter.Template, -1
         yield from cls.root
 
 
     #------------------ comments -------------------------
     @lexicon(re_flags=re.MULTILINE)
-    def singleline_comment(cls):
+    def singleline_comment(cls) -> Iterator[LexiconRule]:
         yield '$', None, -1
         yield from cls.comment_common()
 
     @lexicon
-    def multiline_comment(cls):
+    def multiline_comment(cls) -> Iterator[LexiconRule]:
         yield r'\*/', Comment.End, -1
         yield from cls.comment_common()
 
