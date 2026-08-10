@@ -199,7 +199,7 @@ class IO:
         (en)coding: xxxx variants. Returns None if no encoding is found.
 
         """
-        m = re.search(r'\b(?:en)coding[\t ]*?(?::[ \t]*?|=[\t ]*?")([\w_-]+)', text)
+        m = re.search(r'\b(?:en)?coding[\t ]*?(?::[ \t]*?|=[\t ]*?")([\w_-]+)', text)
         if m:
             return m.group(1)
 
