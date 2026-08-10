@@ -38,6 +38,9 @@ default encoding and provides a method to consult the document's contents to
 see if an encoding is defined there, and use that for I/O operations.
 
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, NamedTuple, Self
 
 import codecs
 import collections
@@ -48,37 +51,65 @@ from urllib.parse import urlparse
 
 from . import util, work
 
-
-DecodeResult = collections.namedtuple("DecodeResult", "root_lexicon text encoding")
-"""The result of the :meth:`DocumentIOMixin.decode_data` method."""
-DecodeResult.root_lexicon.__doc__ = "The root lexicon or None."
-DecodeResult.text.__doc__ = "The decoded text."
-DecodeResult.encoding.__doc__ = "The encoding that was specified or determined, or None."
-
-
-DEFAULT_ENCODING = "utf-8"      #: The general default encoding, if a Language does not define another.
-TEMP_TEXT_MAXSIZE = 5000        #: The maximum size of a text snippet that is searched for an encoding.
+if TYPE_CHECKING:
+    from parce.lexicon import Lexicon
+    from parce.registry import Registry
+    from parce.work import Worker, WorkerDocumentMixin
+    from parce.transform import Transformer
+    _DocumentBase = WorkerDocumentMixin
+else:
+    _DocumentBase = object
 
 
-class DocumentIOMixin:
+class DecodeResult(NamedTuple):
+    """The result of the :meth:`DocumentIOMixin.decode_data` method."""
+    root_lexicon: Lexicon | None
+    """The root lexicon or None."""
+    text: str
+    """The decoded text."""
+    encoding: str | None
+    """The encoding that was specified or determined, or None."""
+
+
+DEFAULT_ENCODING: str = "utf-8"      #: The general default encoding, if a Language does not define another.
+TEMP_TEXT_MAXSIZE: int = 5000        #: The maximum size of a text snippet that is searched for an encoding.
+
+
+class DocumentIOMixin(_DocumentBase):
     """Mixin class, adding load and save methods to Document.
 
     It also expects :class:`~.work.WorkerDocumentMixin` to be mixed in, because
     of the root lexicon handling.
 
     """
+    url: str | None
+    encoding: str | None
+
+    if TYPE_CHECKING:
+        def __init__(
+            self,
+            root_lexicon: Lexicon | None = None,
+            text: str = "",
+            url: str | None = None,
+            encoding: str | None = None,
+            worker: Worker | None = None,
+            transformer: Transformer | bool | None = None
+        ): ...
+
+
     @classmethod
-    def load(cls,
-        url,
-        root_lexicon = True,
-        encoding = None,
-        errors = None,
-        newline = None,
-        registry = None,
-        mimetype = None,
-        worker = None,
-        transformer = None,
-    ):
+    def load(
+        cls,
+        url: str,
+        root_lexicon: Lexicon | str | bool = True,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+        registry: Registry | None = None,
+        mimetype: str | None = None,
+        worker: Worker | None = None,
+        transformer: Transformer | None = None,
+    ) -> Self:
         """Load text from ``url`` and return a Document.
 
         The current implementation only supports reading a file from the
@@ -108,7 +139,12 @@ class DocumentIOMixin:
         data = open(localfile(url), "rb").read()
         return cls.from_bytes(data, url, root_lexicon, encoding, errors, newline, registry, mimetype, worker, transformer)
 
-    def save(self, url=None, encoding=None, newline=None):
+    def save(
+        self,
+        url: str | None = None,
+        encoding: str | None = None,
+        newline: str | None = None
+    ) -> None:
         """Save the document to a local file.
 
         If you specify the ``url`` or ``encoding``, the corresponding Document
@@ -126,24 +162,26 @@ class DocumentIOMixin:
             self.url = url
         if encoding:
             self.encoding = encoding
+        assert self.url is not None, "save() needs a url, either set on the document or passed in"
         data = self.to_bytes(encoding, newline)
         with open(localfile(self.url), "wb") as f:
             f.write(data)
         self.modified = False
 
     @classmethod
-    def from_bytes(cls,
-        data,
-        url = None,
-        root_lexicon = True,
-        encoding = None,
-        errors = None,
-        newline = None,
-        registry = None,
-        mimetype = None,
-        worker = None,
-        transformer = None,
-    ):
+    def from_bytes(
+        cls,
+        data: bytes,
+        url: str | None = None,
+        root_lexicon: Lexicon | str | bool = True,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+        registry: Registry | None = None,
+        mimetype: str | None = None,
+        worker: Worker | None = None,
+        transformer: Transformer | None = None,
+    ) -> Self:
         """Load text from bytes or bytearray ``data`` and return a Document.
 
         For all the other arguments, see :meth:`load`.
@@ -152,7 +190,7 @@ class DocumentIOMixin:
         r = decode_data(data, root_lexicon, encoding, errors, newline, registry, url, mimetype)
         return cls(r.root_lexicon, r.text, url, r.encoding, worker, transformer)
 
-    def to_bytes(self, encoding=None, newline=None):
+    def to_bytes(self, encoding: str | None = None, newline: str | None = None) -> bytes:
         """Return the binary encoded contents of the document.
 
         The default implementation uses the :func:`encode_text` function. If
@@ -180,7 +218,7 @@ class IO:
 
     """
     @classmethod
-    def get(cls, lexicon):
+    def get(cls, lexicon: Lexicon | None) -> IO:
         """Get an IO handler for this lexicon's language.
 
         If the lexicon is None, a new instance of the called IO is returned.
@@ -189,10 +227,10 @@ class IO:
         io_cls = lexicon and util.language_sister_class(lexicon.language, "{}IO", IO, True) or cls
         return io_cls()
 
-    def default_encoding(self):
+    def default_encoding(self) -> str | None:
         """Return the default encoding to use."""
 
-    def find_encoding(self, text):
+    def find_encoding(self, text: str) -> str | None:
         """Return an encoding stored inside the piece of ``text``.
 
         The default implementation recognizes some encoding="xxx" and
@@ -202,16 +240,17 @@ class IO:
         m = re.search(r'\b(?:en)?coding[\t ]*?(?::[ \t]*?|=[\t ]*?")([\w_-]+)', text)
         if m:
             return m.group(1)
+        return None
 
 
-def localfile(url):
+def localfile(url: str) -> str:
     """Return the local filename the ``url`` points to.
 
     The url is parsed using :func:`~urllib.parse.urlparse`. If the url has a
     ``file:`` scheme, the path is returned. If the url has no ``scheme`` and no
     ``netloc``, the full url is returned so that it is used as a local file.
 
-    Currently raises a ValueError if the URL has a ``netloc`` or a ``scheme``
+    Currently, raises a ValueError if the URL has a ``netloc`` or a ``scheme``
     other than ``file:``.
 
     """
@@ -225,15 +264,15 @@ def localfile(url):
 
 
 def decode_data(
-        data,
-        root_lexicon = None,
-        encoding = None,
-        errors = None,
-        newline = None,
-        registry = None,
-        url = None,
-        mimetype = None
-    ):
+    data: bytes,
+    root_lexicon: Lexicon | str | bool | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+    registry: Registry | None = None,
+    url: str | None = None,
+    mimetype: str | None = None
+) -> DecodeResult:
     """Decode text from the binary (bytes or bytearray) ``data``.
 
     Returns a named tuple :class:`DecodeResult` (``root_lexicon``,
@@ -250,7 +289,7 @@ def decode_data(
     default parce :data:`~parce.registry.registry` is used to guess the
     language (in this case ``url`` and ``mimetype`` both help in determining
     the language to use). If ``root_lexicon`` is a string name, it is looked up
-    in the registry. Otherwise it is assumed to be a :class:`~.lexicon.Lexicon`.
+    in the registry. Otherwise, it is assumed to be a :class:`~.lexicon.Lexicon`.
 
     When the root lexicon's Language (or one of its superclasses) has an
     :class:`IO` "sister-class" (i.e. in the same module with the same name with
@@ -280,7 +319,8 @@ def decode_data(
     temp_text = data[:TEMP_TEXT_MAXSIZE].decode(temp_enc, 'ignore')
 
     if registry is None:
-        from parce.registry import registry
+        import parce.registry
+        registry = parce.registry.registry
 
     # determine root lexicon (is ultimately a Lexicon or None)
     if isinstance(root_lexicon, str):
@@ -289,6 +329,9 @@ def decode_data(
         # guess the language: use registry and url
         filename = os.path.basename(url) if url else None
         root_lexicon = registry.find(None, filename=filename, mimetype=mimetype, contents=temp_text)
+
+    if not root_lexicon:
+        root_lexicon = None
 
     # find a possible encoding specified in the document
     h = IO.get(root_lexicon)
@@ -308,7 +351,12 @@ def decode_data(
     return DecodeResult(root_lexicon, text, encoding)
 
 
-def encode_text(text, root_lexicon=None, encoding=None, newline=None):
+def encode_text(
+    text: str,
+    root_lexicon: Lexicon | None = None,
+    encoding: str | None = None,
+    newline: str | None = None
+) -> bytes:
     """Return a :class:`bytes` object with the encoded text.
 
     If ``encoding`` is None, the ``root_lexicon`` is used to help finding
@@ -327,7 +375,7 @@ def encode_text(text, root_lexicon=None, encoding=None, newline=None):
         return b.getvalue()
 
 
-def _validate_encoding(encoding):
+def _validate_encoding(encoding: str | None) -> str | None:
     """Check if the ``encoding`` is actually usable.
 
     Returns None if the encoding is not usable, otherwise the encoding itself.
@@ -339,4 +387,4 @@ def _validate_encoding(encoding):
             return encoding
         except LookupError:
             pass
-
+    return None

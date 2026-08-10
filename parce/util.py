@@ -851,12 +851,12 @@ def tokens(nodes: Sequence[ContextOrToken], reverse: bool = False) -> Iterator[T
             yield from n.tokens(reverse)
 
 
-def language_sister_class[L: Language](
+def language_sister_class[L: Language, T](
     language: type[L],
     template: str,
-    base: type[Any],
+    base: type[T],
     try_parents: bool = False
-) -> type[L] | None:
+) -> type[T] | None:
     """Find a ``language`` sister class in the same module, with a name that
     matches the ``template``, and which is a subclass of ``base``.
 

@@ -16,7 +16,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import collections
 import re
@@ -27,25 +30,30 @@ from . import introspect
 from .lexicon import Lexicon
 from .ruleitem import variations, a_number
 
+if TYPE_CHECKING:
+    from parce.lexicon import Lexicon
+    from parce.language import Language
+    from parce.transform import Transform
+
 
 class LexiconValidator:
 
-    def __init__(self, lexicon):
-        self.lexicon = lexicon
-        self.errors = set()
-        self.warnings = set()
+    def __init__(self, lexicon: Lexicon) -> None:
+        self.lexicon: Lexicon = lexicon
+        self.errors: set[str] = set()
+        self.warnings: set[str] = set()
 
-    def error(self, msg, lexicon=None):
+    def error(self, msg: str, lexicon: Lexicon | None = None) -> None:
         """Add message to errors."""
         msg = "{}: error: {}".format(lexicon or self.lexicon, msg)
         self.errors.add(msg)
 
-    def warning(self, msg, lexicon=None):
+    def warning(self, msg: str, lexicon: Lexicon | None = None) -> None:
         """Add message to warnings."""
         msg = "{}: warning: {}".format(lexicon or self.lexicon, msg)
         self.warnings.add(msg)
 
-    def validate(self):
+    def validate(self) -> bool:
         """Validate a lexicon.
 
         Errors and warnings are left in the ``errors`` and ``warnings``
@@ -89,7 +97,7 @@ class LexiconValidator:
             self.error("can't have both default_action and default_target")
         return not self.errors
 
-    def validate_pattern(self, pattern, n):
+    def validate_pattern(self, pattern: re.Pattern[str], n: int) -> None:
         """Validate a regular expression pattern."""
         try:
             rx = re.compile(pattern, self.lexicon.re_flags)
@@ -99,7 +107,7 @@ class LexiconValidator:
             if rx.match(''):
                 self.warning("rule #{0}: pattern {1} matches the empty string".format(n, repr(pattern)))
 
-    def validate_rule(self, rule, n):
+    def validate_rule(self, rule: Sequence[Any], n: int) -> None:
         """Validate a rule, which should be action, target[, target, ...].
 
         Does not look at the action, but checks whether all the targets are
@@ -112,7 +120,7 @@ class LexiconValidator:
                 if target is not a_number and not isinstance(target, (int, Lexicon)):
                     self.error("rule #{0}: invalid target: {1}".format(n, target))
 
-    def check_default_target(self, target):
+    def check_default_target(self, target: list[Any]) -> None:
         """Check whether this default target could lead to circular references.
 
         This could hang the parser, and we wouldn't like to have that :-)
@@ -120,11 +128,11 @@ class LexiconValidator:
         """
         # a unique object for every entered context, mimicking tree builder behaviour
         class Context:
-            def __init__(self, lexicon):
-                self.lexicon = lexicon
+            def __init__(self, lexicon: Lexicon) -> None:
+                self.lexicon: Lexicon = lexicon
 
         lexicon = self.lexicon
-        lexicons = collections.Counter()    # count them to find the circular culprits
+        lexicons: collections.Counter[Lexicon] = collections.Counter()    # count them to find the circular culprits
         state = [Context(lexicon)]
         circular = set()                    # track circular (existing) contexts
         warn = False
@@ -158,13 +166,13 @@ class LexiconValidator:
                 # is handled gracefully by the tree builder
                 warn = True
             if len(circular) > 100:
-                lexicons = " <-> ".join(str(l) for l, n in lexicons.items() if n > 1)
+                culprits = " <-> ".join(str(l) for l, n in lexicons.items() if n > 1)
                 if warn:
                     # this type of circular default state is handled
-                    self.warning("handled circular default target: {}".format(lexicons), lexicon)
+                    self.warning("handled circular default target: {}".format(culprits), lexicon)
                 else:
                     # run away default states creating new contexts all the time
-                    self.error("circular default target: {}".format(lexicons), lexicon)
+                    self.error("circular default target: {}".format(culprits), lexicon)
                 return
             for pattern, *target in lexicon.rules:
                 if pattern is parce.default_target:
@@ -173,7 +181,7 @@ class LexiconValidator:
                 break
 
 
-def validate_language(lang):
+def validate_language(lang: type[Language]) -> bool:
     """Validate all lexicons in this language.
 
     Errors and warnings are printed to stdout. If there are errors,
@@ -194,7 +202,7 @@ def validate_language(lang):
     return not errors
 
 
-def validate_transform(transform, language):
+def validate_transform(transform: Transform, language: type[Language]) -> bool:
     """Check whether the Transform has a method for every lexicon.
 
     Returns False when method names are not defined. Prints the missing names to
@@ -209,7 +217,7 @@ def validate_transform(transform, language):
     sentinel = object()
     tf = "{}.{}".format(transform.__class__.__module__, transform.__class__.__name__)
     for lexicon in introspect.lexicons(language):
-        meth = getattr(transform, lexicon.name, sentinel)
+        meth: Any = getattr(transform, lexicon.name, sentinel)
         if meth is sentinel:
             print("Missing transform method in {tf} for lexicon: {name}".format(tf=tf, name=lexicon.fullname))
             ok = False
