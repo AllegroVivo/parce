@@ -29,7 +29,7 @@ highlighting formats in css files.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 
 import collections
@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from parce.ruleitem import RuleItem
     from parce.standardaction import StandardAction
     from parce.tree import Token
+    from parce.document import Block
+    from parce.indent import IndentEvent
 
 __all__ = ('Css', 'CssIndent', 'CssIO')
 
@@ -313,10 +315,10 @@ class CssIndent(Indent):
     """Indenter for Css."""
     def events(
         self,
-        block: Any,
+        block: Block,
         tokens: Iterable[Token],
-        prev_indents: Any
-    ) -> Iterator[Any]:
+        prev_indents: Sequence[str]
+    ) -> Iterator[IndentEvent]:
         for t in tokens:
             if t.action is Bracket:
                 if t == "{":
