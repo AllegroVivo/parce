@@ -413,7 +413,7 @@ def build_regexp(r: RxTuple) -> str:
                             sub, _, maxcount = items[0]
                             yield sub, 0, maxcount
                         else:
-                            yield item, mincount, 1
+                            yield pair, mincount, 1
                     else:
                         yield pair, mincount, 1
 
