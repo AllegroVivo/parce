@@ -800,7 +800,7 @@ def get_bom_encoding(data: bytes) -> tuple[str | None, bytes]:
     return None, data
 
 
-def split_list[T](l: list[T], separator: T) -> Iterator[list[T]]:
+def split_list[T](l: list[T], separator: Any) -> Iterator[list[T]]:
     """Split list on items that compare equal to separator.
 
     Yields result lists that may be empty.
