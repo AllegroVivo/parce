@@ -24,8 +24,10 @@ Parse GNU Texinfo.
 https://www.gnu.org/software/texinfo/
 
 """
+from __future__ import annotations
 
-__all__ = ('Texinfo',)
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
@@ -35,10 +37,17 @@ from parce.action import (
 from parce.rule import bygroup, ifgroup
 
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
+
+__all__ = ('Texinfo',)
+
+
 class Texinfo(Language):
 
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r'@[@{}. ]', Escape
         yield r'''@['",=^`~](\{[a-zA-Z]\}|[a-zA-Z]\b)''', Escape
         yield r'@c(?:omment)?\b', Comment, cls.singleline_comment
@@ -56,41 +65,41 @@ class Texinfo(Language):
         yield default_action, Text
 
     @lexicon
-    def brace(cls):
+    def brace(cls) -> Iterator[LexiconRule]:
         yield r'\}', Bracket.End, -1
         yield from cls.root
 
     @lexicon
-    def verbatim(cls):
+    def verbatim(cls) -> Iterator[LexiconRule]:
         yield r'(@end)[ \t]+(verbatim)\b', bygroup(Keyword, Keyword.Verbatim), -1
         yield default_action, Verbatim
 
     @lexicon
-    def html(cls):
+    def html(cls) -> Iterator[LexiconRule]:
         from .html import Html
         yield r'(@end)[ \t]+(html)\b', bygroup(Keyword, Keyword), -1
         yield from Html.root
 
     @lexicon
-    def lilypond_block(cls):
+    def lilypond_block(cls) -> Iterator[LexiconRule]:
         from .lilypond import LilyPond
         yield r'(@end)[ \t]+(lilypond)\b', bygroup(Keyword, Name.Function), -1
         yield from LilyPond.root
 
     @lexicon
-    def lilypond_brace(cls):
+    def lilypond_brace(cls) -> Iterator[LexiconRule]:
         from .lilypond import LilyPond
         yield r'\}', Bracket.End, -1
         yield from LilyPond.root
 
     #---------- comments ------------------------
     @lexicon(re_flags=re.MULTILINE)
-    def singleline_comment(cls):
+    def singleline_comment(cls) -> Iterator[LexiconRule]:
         yield '$', None, -1
         yield from cls.comment_common()
 
     @lexicon
-    def multiline_comment(cls):
+    def multiline_comment(cls) -> Iterator[LexiconRule]:
         yield r'@end\s+ignore\b', Comment, -1
         yield from cls.comment_common()
 

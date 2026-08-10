@@ -23,8 +23,10 @@ INI file format parsers.
 The base parser supports escaped characters and line continuations for values.
 
 """
+from __future__ import annotations
 
-__all__ = ('Ini', 'IniTransform')
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, cast
 
 import re
 
@@ -34,40 +36,48 @@ from parce.action import (
 )
 from parce.transform import Transform
 
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+    from parce.standardaction import StandardAction
+    from parce.transform import ItemList, Item
+
+
+__all__ = ('Ini', 'IniTransform')
+
 
 class Ini(Language):
     @lexicon
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r'\[', Bracket.Start, cls.section
         yield r'[;#]', Comment, cls.comment
         yield r'=', Operator.Assignment, cls.value
         yield default_target, cls.key
 
     @lexicon
-    def section(cls):
+    def section(cls) -> Iterator[LexiconRule]:
         """Parse text between [ ... ]."""
         yield r'\]', Bracket.End, -1
         yield default_action, Name.Namespace
 
     @lexicon
-    def key(cls):
+    def key(cls) -> Iterator[LexiconRule]:
         """Yield a Name.Identifier until a '=' (if present)."""
         yield from cls.values(Name.Identifier)
 
     @lexicon
-    def value(cls):
+    def value(cls) -> Iterator[LexiconRule]:
         """Yield a Value until line end (or continuation line)."""
         yield from cls.values(Data)
 
     @classmethod
-    def values(cls, action):
+    def values(cls, action: StandardAction) -> Iterator[LexiconRule]:
         """Yield name or value contents and give it the specified action."""
         yield r"""\\(?:[\n\\'"0abtrn;#=:]|[xX][0-9a-fA-F]{4})""", Escape
         yield r"[^\[\\\n;=#:]+", action
         yield default_target, -1
 
     @lexicon(re_flags=re.MULTILINE)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         """Yield a Comment til the end of the line."""
         yield r'$', Comment, -1
         yield from cls.comment_common()
@@ -80,23 +90,23 @@ class IniTransform(Transform):
     If a value is absent, None is stored.
 
     """
-    def root(self, items):
+    def root(self, items: ItemList) -> dict[str, dict[str, str | None]]:
         """Return a dict, section names are the keys.
 
         Toplevel keys are in the ``None`` entry.
 
         """
-        result = {}
+        result: dict[str | None, dict[str, str | None]] = {}
         d = result[None] = {}
         i, z = 0, len(items)
         while i < z:
             if items.peek(i, "section"):
-                result[items[i].obj] = d = {}
+                result[cast("Item", items[i]).obj] = d = {}
             elif items.peek(i, "key", Operator.Assignment):
-                key = items[i].obj
+                key = cast("Item", items[i]).obj
                 value = None
                 if items.peek(i + 2, "value"):
-                    value = items[i+2].obj
+                    value = cast("Item", items[i+2]).obj
                     i += 1
                 d[key] = value
                 i += 1
@@ -104,35 +114,36 @@ class IniTransform(Transform):
         # delete toplevel dict if empty
         if not result[None]:
             del result[None]
-        return result
+        return result  # type: ignore[return-value]
 
-    def section(self, items):
+    def section(self, items: ItemList) -> str:
         """Return the name of the section."""
         if items.peek(-1, Bracket.End):
             items.pop()
         return self.values(items)
 
-    def key(self, items):
+    def key(self, items: ItemList) -> str:
         """Return the key name."""
         return self.values(items)
 
-    def value(self, items):
+    def value(self, items: ItemList) -> str | None:
         """Return the value."""
         return self.values(items)
 
-    def values(self, items):
+    def values(self, items: ItemList) -> str:
         """Return a string, handling escaped characters, stripping spaces."""
         result = []
         if items:
+            toks = list(items.tokens())
             # de-tokenize
-            items = [t.text for t in items]
+            texts = [t.text for t in toks]
             # strip whitespace, but not from escapes
-            if not items[0].startswith('\\'):
-                items[0] = items[0].lstrip(' \t')
-            if not items[-1].startswith('\\'):
-                items[-1] = items[-1].rstrip(' \t')
+            if not texts[0].startswith('\\'):
+                texts[0] = texts[0].lstrip(' \t')
+            if not texts[-1].startswith('\\'):
+                texts[-1] = texts[-1].rstrip(' \t')
             # unescape
-            for t in items:
+            for t in texts:
                 if t.startswith('\\'):
                     t = chr(int(t[2:], 16)) if t[1] in ('x', 'X') else t[1]
                 result.append(t)

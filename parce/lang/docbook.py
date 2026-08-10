@@ -21,21 +21,23 @@
 Parse DocBook.
 
 """
+from __future__ import annotations
+
+from parce.action import Keyword
+from parce.lang.xml import Xml
+from parce.rule import TEXT, ifmember
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from parce.ruleitem import select
 
 __all__ = ('DocBook',)
-
-import re
-
-from parce import Language, lexicon
-from parce.lang.xml import Xml, RE_XML_NAME
-from parce.rule import TEXT, ifmember
-from parce.action import Delimiter, Keyword, Name
 
 
 class DocBook(Xml):
     """DocBook is also valid Xml."""
     @classmethod
-    def tag_action(cls):
+    def tag_action(cls) -> select:
         """Reimplemented to return Keyword for known DocBook tag names."""
         return ifmember(TEXT, DOCBOOK_ELEMENTS, Keyword, super().tag_action())
 

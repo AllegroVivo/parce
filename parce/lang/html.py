@@ -23,8 +23,10 @@ Parse HTML.
 Recognizes CSS in style tags and attributes.
 
 """
+from __future__ import annotations
 
-__all__ = ('Html', 'XHtml')
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import re
 
@@ -35,6 +37,12 @@ from parce.rule import ARG, MATCH, TEXT, bygroup, dselect, using, words
 from parce.lang.xml import Xml, XmlIO
 from parce.lang.css import Css
 from parce.lang.javascript import JavaScript
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
+
+__all__ = ('Html', 'XHtml')
 
 
 # elements that do not start a new tag context
@@ -47,7 +55,7 @@ HTML_VOID_ELEMENTS = (
 class XHtml(Xml):
     """XHtml, is also valid Xml."""
     @lexicon(re_flags=re.IGNORECASE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r'(<)(style|script)\b(>|/\s*>)?', bygroup(Delimiter, cls.tag_action(), Delimiter), \
             dselect(MATCH[2], {
                 "style": dselect(MATCH[3], {'>': cls.css_style_tag, None: cls.attrs("css")}),
@@ -56,7 +64,7 @@ class XHtml(Xml):
         yield from super().root
 
     @lexicon
-    def attrs(cls):
+    def attrs(cls) -> Iterator[LexiconRule]:
         """Reimplemented to recognize style attributes and switch to style tag."""
         yield r'(style)\s*(=)\s*(")', bygroup(Name.Attribute, Operator, String), \
             cls.css_style_attribute
@@ -67,19 +75,19 @@ class XHtml(Xml):
         yield from super().attrs
 
     @lexicon
-    def script_tag(cls):
+    def script_tag(cls) -> Iterator[LexiconRule]:
         """Stuff between <script> and </script>."""
         yield r'(<\s*/)\s*(script)\s*(>)', bygroup(Delimiter, cls.tag_action(), Delimiter), -1
         yield from JavaScript.root
 
     @lexicon
-    def css_style_tag(cls):
+    def css_style_tag(cls) -> Iterator[LexiconRule]:
         """Stuff between <style> and </style>."""
         yield r'(<\s*/)\s*(style)\s*(>)', bygroup(Delimiter, cls.tag_action(), Delimiter), -1
         yield from Css.root
 
     @lexicon
-    def css_style_attribute(cls):
+    def css_style_attribute(cls) -> Iterator[LexiconRule]:
         """Stuff inside style=" ... " attrbute."""
         yield r'([^"]*)(")', bygroup(using(Css.inline), String), -1
         yield default_target, -1
@@ -88,7 +96,7 @@ class XHtml(Xml):
 class Html(XHtml):
     """Html, allows certain tags (void elements) not to be closed."""
     @lexicon(re_flags=re.IGNORECASE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         tag_action = cls.tag_action()
         yield words(HTML_VOID_ELEMENTS, prefix=r'(<\s*?/)\s*((?:\w+:)?', suffix=r')\s*(>)'), \
             bygroup(Delimiter, tag_action, Delimiter) # don't leave no-closing tags
@@ -101,7 +109,7 @@ class Html(XHtml):
 
 class XHtmlIO(XmlIO):
     """I/O handling for (X)Html."""
-    def find_encoding(self, text):
+    def find_encoding(self, text: str) -> str | None:
         """Find the encoding in HTML meta tag; if not, fall back to XML processing instruction."""
         import parce.ruleitem
 

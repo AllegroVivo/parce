@@ -21,16 +21,22 @@
 Tcl (Tool Command Language)
 
 """
-
-__all__ = ('Tcl',)
+from __future__ import annotations
 
 import re
-
-from parce import Language, lexicon, default_action
+from collections.abc import Iterator
+from parce import Language, default_action, lexicon
 from parce.action import (
     Comment, Delimiter, Escape, Keyword, Name, Number, Operator, String, Text
 )
-from parce.rule import MATCH, bygroup, ifgroup, findmember, gselect
+from parce.rule import MATCH, bygroup, findmember, gselect, ifgroup
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from parce._types import LexiconRule
+
+
+__all__ = ('Tcl',)
 
 
 RE_TCL_NUMBER = (r'[-+]?(?:'
@@ -46,7 +52,7 @@ class Tcl(Language):
     """Tool command language."""
 
     @classmethod
-    def values(cls):
+    def values(cls) -> Iterator[LexiconRule]:
         yield r'\[', Delimiter, cls.command
         yield r'"', String, cls.quoted
         yield r'\{', Delimiter.Bracket, cls.braced
@@ -60,7 +66,7 @@ class Tcl(Language):
             ifgroup(2, cls.comment)
 
     @lexicon(re_flags=re.MULTILINE)
-    def root(cls):
+    def root(cls) -> Iterator[LexiconRule]:
         yield r'\A#!.*?$', Comment.Special
         yield from cls.values()
         yield r"([^\s\\{}[\]$'();]+)(\()?", bygroup(
@@ -71,30 +77,30 @@ class Tcl(Language):
         yield r'\(\)', Delimiter
 
     @lexicon(re_flags=re.MULTILINE)
-    def command(cls):
+    def command(cls) -> Iterator[LexiconRule]:
         yield r'\]', Delimiter, -1
         yield from cls.root
 
     @lexicon
-    def quoted(cls):
+    def quoted(cls) -> Iterator[LexiconRule]:
         yield r'"', String, -1
         yield r'\[', Delimiter, cls.command
         yield from cls.values()
         yield default_action, String
 
     @lexicon(re_flags=re.MULTILINE)
-    def braced(cls):
+    def braced(cls) -> Iterator[LexiconRule]:
         yield r'\}', Delimiter.Bracket, -1
         yield from cls.root
 
     @lexicon(re_flags=re.MULTILINE)
-    def index(cls):
+    def index(cls) -> Iterator[LexiconRule]:
         """Index of a variable reference like $name(index)."""
         yield r'\)', Delimiter, -1
         yield from cls.root
 
     @lexicon(re_flags=re.MULTILINE)
-    def comment(cls):
+    def comment(cls) -> Iterator[LexiconRule]:
         yield r'$', None, -1
         yield from cls.comment_common()
 
