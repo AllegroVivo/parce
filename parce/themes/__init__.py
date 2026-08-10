@@ -27,8 +27,9 @@ See the :doc:`theme <theme>` module for the supporting code.
 
 import fnmatch
 
+_loader: Any = __loader__  # type: ignore[name-defined]  # deprecated module attribute, still set at runtime; TODO migrate to importlib.resources
 
-def filename(name):
+def filename(name: str) -> str:
     """Convert theme name to the CSS file in this directory.
 
     E.g. "default" translates to "/usr/lib/python/3.x/parce/themes/default.css",
@@ -36,14 +37,14 @@ def filename(name):
 
     """
     try:
-        resource_reader = __loader__.get_resource_reader()
+        resource_reader = _loader.get_resource_reader()
     except AttributeError:
-        resource_reader = __loader__
+        resource_reader = _loader
 
     return resource_reader.resource_path(name + '.css')
 
 
-def get_all_themes():
+def get_all_themes() -> list[str]:
     """Return the sorted list of CSS theme names in ``parce.themes``.
 
     Only the names are returned, without the '.css' extension.
@@ -51,9 +52,9 @@ def get_all_themes():
 
     """
     try:
-        resource_reader = __loader__.get_resource_reader()
+        resource_reader = _loader.get_resource_reader()
     except AttributeError:
-        resource_reader = __loader__
+        resource_reader = _loader
 
     names = []
     for filename in resource_reader.contents():

@@ -581,12 +581,12 @@ def cached_method[F: Callable[..., Any]](func: F) -> F:
     return cast("F", wrapper)
 
 
-def cached_property(func: Callable[[Any], Any]) -> property:
+def cached_property(func: Callable[..., Any]) -> property:
     """Like property, but caches the computed value."""
     return property(cached_method(func))
 
 
-def cached_func[F: Callable[[Any], Any]](func: F) -> F:
+def cached_func[F: Callable[..., Any]](func: F) -> F:
     """Wrap a normal function and caches the return value.
 
     The function's argument tuple should be hashable; keyword arguments are not
@@ -689,7 +689,7 @@ class Symbol:
     def __repr__(self) -> str:
         return self._name
 
-    @cached_func  # type: ignore[type-var]  # mypy cannot bind F against __new__
+    @cached_func
     def __new__(cls, name: str) -> Symbol:
         obj = object.__new__(cls)
         obj._name = name
