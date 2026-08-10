@@ -42,8 +42,8 @@ class Csv(Language):
     @lexicon(re_flags=re.MULTILINE)
     def record(cls):
         """Split a record in escaped (string) and non-escaped fields."""
-        yield r'$\n?', skip, -1
-        yield r'[^,"\n]+(?=$|,|\n)', a.Name
+        yield r'\r?$\n?', skip, -1
+        yield r'[^,"\r\n]+(?=$|[,\r\n])', a.Name
         yield r'[ \t]*((?:[^,"\s]+[ \t]*)+)?(")', bygroup(a.Invalid, a.String.Start), cls.string
         yield ',', a.Separator
 
