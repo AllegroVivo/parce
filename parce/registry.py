@@ -301,7 +301,7 @@ class Registry(dict):
             def lexicons(reg):
                 for qualname in reg.suggest(filename, mimetype, contents):
                     yield reg.lexicon(qualname)
-        while self:
+        while self is not None:
             for lexicon in lexicons(self):
                 return lexicon
             self = self.fallback
