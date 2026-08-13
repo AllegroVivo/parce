@@ -80,6 +80,7 @@ class Scheme(Language):
 
         yield r"#[tTfF]\b", Number.Boolean, pop
         yield r"#\\([a-z]+|.)", Character, pop
+        yield r"#:" + RE_SCHEME_ID, Keyword, pop
         yield RE_SCHEME_ID, cls.get_word_action(), pop
 
         _g = lambda action: bygroup(Number.Prefix, action, skip, Number.Prefix)
