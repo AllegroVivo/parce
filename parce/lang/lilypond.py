@@ -230,6 +230,8 @@ class LilyPond(Language):
         yield r"~", Spanner.Tie
         yield r"\\~", Spanner.PesOrFlexa
         yield r"\\[<>!]", Dynamic
+        # Must precede Direction rule - dot rules out a fingering
+        yield r'-\d+\.\d+', Number.Float
         yield r"[-_^]", Direction, cls.script
         yield r"(\\=)\s*(?:(\d+)|({}))?".format(RE_LILYPOND_SYMBOL), \
             bygroup(Spanner.Id, Number, cls.ifpitch(Name.Symbol.Invalid, Name.Symbol))
