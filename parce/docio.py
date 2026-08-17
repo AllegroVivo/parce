@@ -108,7 +108,7 @@ class DocumentIOMixin(_DocumentBase):
         registry: Registry | None = None,
         mimetype: str | None = None,
         worker: Worker | None = None,
-        transformer: Transformer | None = None,
+        transformer: Transformer | bool | None = None,
     ) -> Self:
         """Load text from ``url`` and return a Document.
 
@@ -180,7 +180,7 @@ class DocumentIOMixin(_DocumentBase):
         registry: Registry | None = None,
         mimetype: str | None = None,
         worker: Worker | None = None,
-        transformer: Transformer | None = None,
+        transformer: Transformer | bool | None = None,
     ) -> Self:
         """Load text from bytes or bytearray ``data`` and return a Document.
 
